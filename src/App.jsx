@@ -260,11 +260,14 @@ function parse(text, meta = {}) {
   const notAddr = /@|http|phone|property|book|publish|imprint|amazon|email|linkedin|website|date/i;
   const looksAddr = (l) => !!l && !notAddr.test(l) && (/^\d{1,6}\s+\w/.test(l) || zip.test(l) || /,\s*[A-Z]{2}\b/.test(l) || streetWords.test(l));
   let address = "";
-  // labeled address: value may be inline after the label OR on the following line(s)
-  const addrIdx = lines.findIndex((l) => /^(address|primary\s*street|street|residence|mailing)\b/i.test(l));
+  // labeled address: value may be inline after the label OR on the following line(s).
+  // Skip UI controls like "Address Lookup" / "Address Search", and only accept inline text that looks like an address.
+  const addrLabel = /^(address|primary\s*street|street|residence|mailing)\b/i;
+  const addrLabelUI = /\b(lookup|search|finder|reverse|directory|history|verification|autocomplete|results?|tools?|report|book)\b/i;
+  const addrIdx = lines.findIndex((l) => addrLabel.test(l) && !addrLabelUI.test(l));
   if (addrIdx >= 0) {
     const inline = lines[addrIdx].replace(/^(address|primary\s*street|street|residence|mailing)\s*:?\s*/i, "").trim();
-    const parts = inline ? [inline] : [];
+    const parts = (inline && looksAddr(inline)) ? [inline] : [];
     for (let i = addrIdx + 1; i < lines.length && parts.length < 3; i++) {
       if (!looksAddr(lines[i])) break;
       parts.push(lines[i]);
