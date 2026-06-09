@@ -291,7 +291,9 @@ function parse(text, meta = {}) {
     if (idx >= 0) {
       const parts = [lines[idx]];
       const next = lines[idx + 1];
-      if (!zip.test(lines[idx]) && looksAddr(next) && (zip.test(next || "") || /,\s*[A-Z]{2}\b/.test(next || ""))) parts.push(next);
+      // Only skip the city/state/zip continuation if the street line ALREADY carries a real ZIP. Strip the
+      // leading house number first so a 5-digit house number (e.g. "11267") isn't mistaken for a ZIP code.
+      if (!zip.test(lines[idx].replace(/^\d{1,6}\b/, "")) && looksAddr(next) && (zip.test(next || "") || /,\s*[A-Z]{2}\b/.test(next || ""))) parts.push(next);
       address = parts.join(", ");
     }
   }
