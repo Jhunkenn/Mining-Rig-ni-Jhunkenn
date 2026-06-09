@@ -348,6 +348,23 @@ function parse(text, meta = {}) {
   name = name.replace(/\s+/g, " ").trim();
   if (DISQUALIFY.test(name)) name = "";
   name = name.replace(/\b(?:and|&)\b/gi, " ").replace(/\s+/g, " ").trim(); // disqualify the connector "and"/"&" anywhere in the name
+  // People-search fallback (isolated; runs ONLY if no valid name remains after every method above —
+  // including when an existing method returned a value that was just disqualified/blanked, e.g. a footer
+  // line like "...as defined by the Fair Credit Reporting Act"). On TruePeopleSearch the lead's name sits
+  // on or directly above an "Age / Born / DOB / Date of Birth" line; the required birth marker keeps this
+  // people-search-only (Amazon/book pages never match). First birth-anchored name is the lead, not a relative.
+  if (!name) {
+    const psN = /^([A-Z][A-Za-z'’.\-]+(?:\s+[A-Z][A-Za-z'’.\-]+){1,3})$/;
+    const psI = /^([A-Z][A-Za-z'’.\-]+(?:\s+[A-Z][A-Za-z'’.\-]+){1,3})\s+(?:age|born|dob|date\s+of\s+birth)\b/i;
+    const psM = /^(?:age\b|born\b|dob\b|date\s+of\s+birth\b)/i;
+    for (let i = 0; i < lines.length; i++) {
+      let cand = "";
+      const inl = lines[i].match(psI);
+      if (inl) cand = inl[1];                                                 // "William Avalos Age 46, Born ..."
+      else if (i > 0 && psM.test(lines[i]) && psN.test(lines[i - 1])) cand = lines[i - 1].match(psN)[1]; // name on the line above an "Age ..." line
+      if (cand && !DISQUALIFY.test(cand)) { name = cand.replace(/\s+/g, " ").trim(); break; }
+    }
+  }
   const { firstName, lastName } = splitName(name);
 
   const mainLines = lines.filter((l) => /main\s*phone/i.test(l)).join(" ");
