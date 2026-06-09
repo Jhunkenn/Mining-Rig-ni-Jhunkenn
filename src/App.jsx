@@ -57,11 +57,11 @@ function authorName(text) {
   const clean = (s) => s.replace(/^by\s+/i, "").replace(/\s+/g, " ").trim();
   const personOK = (s, min) => { const w = clean(s).split(/\s+/); return w.length >= min && w.length <= 3 && !company.test(s); };
   // 1) strongest signal: a name immediately before "(Author)"
-  const tagged = text.match(/([A-Z][A-Za-z'’.\-]+(?:[ \t]+[A-Z][A-Za-z'’.\-]+){0,2})[ \t]*\(\s*authors?\s*\)/i);
+  const tagged = text.match(/([A-Z][A-Za-z'’.\-]*(?:[ \t]+[A-Z][A-Za-z'’.\-]*){0,2})[ \t]*\(\s*authors?\s*\)/i);
   if (tagged && personOK(tagged[1], 1)) return clean(tagged[1]);
   // 2) "by NAME" — but not "sold by", "shipped by", "published by", etc.
   const badBefore = /(sold|ship|ships|shipped|fulfil|fulfill|fulfilled|dispatch|dispatched|publish|published|distribute|distributed|market|marketed|power|powered|deliver|delivered|import|imported|present|presented|narrate|narrated|illustrate|illustrated|edit|edited|translate|translated|produce|produced)$/i;
-  const re = /\bby[ \t]+([A-Z][A-Za-z'’.\-]+(?:[ \t]+[A-Z][A-Za-z'’.\-]+){1,2})/gi;
+  const re = /\bby[ \t]+([A-Z][A-Za-z'’.\-]*(?:[ \t]+[A-Z][A-Za-z'’.\-]*){1,2})/gi;
   let m;
   while ((m = re.exec(text))) {
     const before = text.slice(Math.max(0, m.index - 24), m.index);
@@ -364,18 +364,6 @@ function parse(text, meta = {}) {
       else if (i > 0 && psM.test(lines[i]) && psN.test(lines[i - 1])) cand = lines[i - 1].match(psN)[1]; // name on the line above an "Age ..." line
       if (cand && !DISQUALIFY.test(cand)) { name = cand.replace(/\s+/g, " ").trim(); break; }
     }
-  }
-  // Leading-initial restore (isolated fallback; runs only when a name was already detected and does NOT
-  // already start with an initial). Some bylines use a bare initial with no period — e.g. Amazon
-  // "by D Anthony Miles (Author)" — which the author matcher cannot begin on (its per-word token needs
-  // 2+ chars), so it returns the name minus that initial ("Anthony Miles"). If that exact detected name
-  // appears in the source immediately preceded by a lone initial (with or without a period), e.g.
-  // "D. Anthony Miles", restore the initial(s) before splitName() runs. Does not modify authorName(),
-  // splitName(), or any non-name extraction; only repairs a dropped leading initial on an existing name.
-  if (name && !/^[A-Z]\.?\s/.test(name)) {
-    const esc = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const lead = T.match(new RegExp("(?:^|[^A-Za-z])((?:[A-Z]\\.?\\s+){1,2})" + esc + "\\b"));
-    if (lead) name = (lead[1] + name).replace(/\s+/g, " ").trim();
   }
   const { firstName, lastName } = splitName(name);
 
