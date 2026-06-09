@@ -550,11 +550,15 @@ export default function App() {
   const urlMode = trimmedRaw.length > 0 && !/\s/.test(trimmedRaw) && /^(https?:\/\/)?[\w.-]+\.[a-z]{2,}([/?#]|$)/i.test(trimmedRaw);
   const link = useMemo(() => (urlMode ? cleanUrl(trimmedRaw) : null), [urlMode, trimmedRaw]);
 
+  // normalize the extracted Amazon URL for both display and copy (uses the existing cleanUrl)
+  const cleanAmazon = (v) => { if (!v) return ""; const r = cleanUrl(v); return r.kind === "amazon" && !r.warning ? r.clean : v; };
+
   // ---- copy: UNCHANGED 16-cell SLOTS order + clipboard payload ----
   const valueOf = (slot) => {
     if (slot.blank) return "";
     if (slot.key === "phone") return built[0]?.display || "";
     if (slot.key === "otherPhone") return built.slice(1).map((n) => n.display).join(", ");
+    if (slot.key === "amazon") return cleanAmazon(rec.amazon);
     return rec[slot.key] || "";
   };
   const cells = useMemo(() => SLOTS.map(valueOf), [rec, built]);
@@ -563,6 +567,7 @@ export default function App() {
   const fieldVal = (key) => {
     if (key === "phone") return built[0]?.display || "";
     if (key === "otherPhone") return built.slice(1).map((n) => n.display).join(", ");
+    if (key === "amazon") return cleanAmazon(rec.amazon);
     return rec[key] || "";
   };
 
