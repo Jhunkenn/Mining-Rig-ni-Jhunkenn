@@ -459,6 +459,7 @@ function Icon({ name, size = 14, style }) {
     inbox: <g {...p}><path d="M3 13h5l1.5 2.5h5L16 13h5" /><path d="M6 5.5 3 13v5a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5L18 5.5A2 2 0 0 0 16.2 4.5H7.8A2 2 0 0 0 6 5.5z" /></g>,
     spark: <g {...p}><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10z" /></g>,
     layers: <g {...p}><path d="M12 3 3 7.5 12 12l9-4.5L12 3z" /><path d="M3 12l9 4.5L21 12M3 16.5 12 21l9-4.5" /></g>,
+    link: <g {...p}><path d="M9.5 14.5 14.5 9.5" /><path d="M8 12 6 14a3.5 3.5 0 0 0 5 5l2-2" /><path d="M16 12l2-2a3.5 3.5 0 0 0-5-5l-2 2" /></g>,
   };
   return <svg width={size} height={size} viewBox="0 0 24 24" style={{ flexShrink: 0, display: "block", ...style }}>{shapes[name] || null}</svg>;
 }
@@ -501,12 +502,42 @@ function detectSource(text) {
   return "";
 }
 
+// ---- URL normalization (fully isolated; independent of parse()/extraction) ----
+const TRACKING_PARAMS = new Set([
+  "utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term",
+  "fbclid", "gclid", "msclkid", "mc_eid", "ref", "ref_src",
+  "tag", "crid", "qid", "keywords", "dib", "dib_tag", "sprefix", "sr", "psc", "linkcode",
+  "ascsubtag", "th", "colid", "coliid", "smid", "_encoding", "pf_rd_r", "pf_rd_p", "pd_rd_r", "pd_rd_w", "pd_rd_wg", "content-id",
+]);
+const isAmazonHost = (h) => /(^|\.)amazon\.[a-z.]+$/i.test(h) || /(^|\.)amzn\.[a-z.]+$/i.test(h);
+function extractAsin(u) {
+  const seg = u.pathname.match(/\/(?:dp|gp\/product|gp\/aw\/d|product|o\/ASIN)\/([A-Z0-9]{10})(?=[/?]|$)/i);
+  if (seg) return seg[1].toUpperCase();
+  const qa = u.searchParams.get("asin") || u.searchParams.get("ASIN");
+  if (qa && /^[A-Z0-9]{10}$/i.test(qa)) return qa.toUpperCase();
+  const any = u.pathname.match(/\/([A-Z0-9]{10})(?=[/?]|$)/i);
+  return any ? any[1].toUpperCase() : null;
+}
+// Returns { kind:"amazon"|"generic"|"invalid", original, clean, warning }
+function cleanUrl(input) {
+  const original = (input || "").trim();
+  let u;
+  try { u = new URL(/^https?:\/\//i.test(original) ? original : "https://" + original); }
+  catch { return { kind: "invalid", original, clean: original, warning: "Not a valid URL." }; }
+  if (isAmazonHost(u.hostname)) {
+    const asin = extractAsin(u);
+    if (asin) return { kind: "amazon", original, clean: `https://${u.hostname}/dp/${asin}`, warning: "" };
+    return { kind: "amazon", original, clean: original, warning: "Amazon product identifier not detected." };
+  }
+  for (const k of [...u.searchParams.keys()]) if (TRACKING_PARAMS.has(k.toLowerCase())) u.searchParams.delete(k);
+  return { kind: "generic", original, clean: u.toString().replace(/\?$/, ""), warning: "" };
+}
+
 export default function App() {
   const [raw, setRaw] = useState("");
   const [copied, setCopied] = useState("");
   const [theme, setTheme] = useState(0);
   const [stats, setStats] = useState({ leads: 0, fields: 0, ready: 0 });
-  const [compact, setCompact] = useState(false);
   const [leftPct, setLeftPct] = useState(50); // input panel width %, session-only
   const wsRef = useRef(null);
   const dragRef = useRef(false);
@@ -515,6 +546,9 @@ export default function App() {
   const rec = useMemo(() => parse(raw), [raw]);
   const built = useMemo(() => buildPhones(rec.phones), [rec.phones]);
   const source = useMemo(() => detectSource(raw), [raw]);
+  const trimmedRaw = raw.trim();
+  const urlMode = trimmedRaw.length > 0 && !/\s/.test(trimmedRaw) && /^(https?:\/\/)?[\w.-]+\.[a-z]{2,}([/?#]|$)/i.test(trimmedRaw);
+  const link = useMemo(() => (urlMode ? cleanUrl(trimmedRaw) : null), [urlMode, trimmedRaw]);
 
   // ---- copy: UNCHANGED 16-cell SLOTS order + clipboard payload ----
   const valueOf = (slot) => {
@@ -552,6 +586,10 @@ export default function App() {
     const plain = cells.map(q).join("\n");
     const html = `<table>${cells.map((c) => `<tr><td>${esc(c)}</td></tr>`).join("")}</table>`;
     if (await clip(plain, html)) { flash("col"); tally(); }
+  };
+
+  const copyClean = async () => {
+    if (link && !link.warning && (await clip(link.clean, link.clean))) flash("link");
   };
 
   const vars = THEMES[theme].vars;
@@ -655,6 +693,15 @@ export default function App() {
       .ws { flex-direction: column; }
       .ws .ws-pane { flex: 1 1 auto !important; width: 100%; }
       .ws-divider { display: none; }
+      .ws textarea { height: 220px; }
+    }
+    @media (max-width: 600px) {
+      .lx { padding: 14px !important; }
+      .sheet { padding: 24px 16px 18px; }
+      .swatch-label { display: none; }
+      .swatch { gap: 0; padding: 7px; }
+      .kbdhint { display: none; }
+      .stat { min-width: 0; flex: 1 1 0; }
     }
     @keyframes fadeUp { from { opacity:0; transform: translateY(10px); } to { opacity:1; transform:none; } }
     @keyframes fadeIn { from { opacity:0; } to { opacity:1; } }
@@ -670,17 +717,14 @@ export default function App() {
       <style>{css}</style>
 
       {/* header */}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 14, alignItems: "flex-start", justifyContent: "space-between", marginBottom: compact ? 10 : 14 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 14, alignItems: "flex-start", justifyContent: "space-between", marginBottom: 14 }}>
         <div style={{ minWidth: 0 }}>
           <div className="mono" style={{ fontSize: 10.5, letterSpacing: 2, color: "var(--accent)", fontWeight: 700, textTransform: "uppercase" }}>Lead Extraction Workbench</div>
-          <h1 style={{ margin: "2px 0 3px", fontSize: compact ? "clamp(20px,3vw,26px)" : "clamp(24px,4vw,34px)", fontWeight: 800, letterSpacing: -1 }}><span style={{ color: "var(--accent)", marginRight: 6 }}>⛏</span>Jhunkenn's Mining Rig</h1>
-          {!compact && <p style={{ margin: 0, fontSize: 13.5, color: "var(--ink-soft)" }}>Parse search results into structured lead data.</p>}
+          <h1 style={{ margin: "2px 0 3px", fontSize: "clamp(24px,4vw,34px)", fontWeight: 800, letterSpacing: -1 }}><span style={{ color: "var(--accent)", marginRight: 6 }}>⛏</span>Jhunkenn's Mining Rig</h1>
+          <p style={{ margin: 0, fontSize: 13.5, color: "var(--ink-soft)" }}>Parse search results into structured lead data.</p>
         </div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
           <span className="mono" style={{ fontSize: 10, fontWeight: 600, color: "var(--ink-soft)", padding: "5px 9px", borderRadius: 99, border: "1px solid var(--line)", background: "var(--field)" }}>v{VERSION}</span>
-          <button onClick={() => setCompact((c) => !c)} title="Compact mode — hide stats and tighten spacing for more workspace" className="swatch" style={{ background: compact ? "var(--ink)" : "var(--field)", color: compact ? "var(--bone)" : "var(--ink)", border: `1px solid ${compact ? "var(--ink)" : "var(--line)"}` }}>
-            <Icon name="cols" size={13} />Compact
-          </button>
           {THEMES.map((t, i) => {
             const active = theme === i;
             return (
@@ -688,7 +732,7 @@ export default function App() {
                 style={{ background: active ? "var(--ink)" : "var(--field)", color: active ? "var(--bone)" : "var(--ink)",
                   border: `1px solid ${active ? "var(--ink)" : "var(--line)"}`, boxShadow: active ? "0 6px 16px -6px var(--focus)" : "none" }}>
                 <span className="dot" style={{ background: t.vars["--accent"], boxShadow: `inset 0 0 0 2px ${t.vars["--note"]}, 0 0 0 1px rgba(0,0,0,.08)` }} />
-                {t.name}
+                <span className="swatch-label">{t.name}</span>
               </button>
             );
           })}
@@ -696,22 +740,20 @@ export default function App() {
       </div>
 
       {/* session statistics */}
-      {!compact && (
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 18 }}>
-          {statCards.map((s) => (
-            <div key={s.label} className="stat">
-              <span className="stat-ico"><Icon name={s.icon} size={16} /></span>
-              <div>
-                <div className="lbl" style={{ color: "var(--ink-soft)" }}>{s.label}</div>
-                <div className="mono" style={{ fontSize: 20, fontWeight: 800, marginTop: 1 }}>{s.value}</div>
-              </div>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 18 }}>
+        {statCards.map((s) => (
+          <div key={s.label} className="stat">
+            <span className="stat-ico"><Icon name={s.icon} size={16} /></span>
+            <div>
+              <div className="lbl" style={{ color: "var(--ink-soft)" }}>{s.label}</div>
+              <div className="mono" style={{ fontSize: 20, fontWeight: 800, marginTop: 1 }}>{s.value}</div>
             </div>
-          ))}
-        </div>
-      )}
+          </div>
+        ))}
+      </div>
 
       {/* workspace */}
-      <div ref={wsRef} className="ws" style={{ display: "flex", alignItems: "flex-start", gap: compact ? 12 : 18 }}>
+      <div ref={wsRef} className="ws" style={{ display: "flex", alignItems: "flex-start", gap: 18 }}>
         {/* input */}
         <div className="ws-pane" style={{ flex: `0 0 ${leftPct}%`, minWidth: 0 }}>
           <div className="lbl" style={{ color: "var(--ink-soft)", marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -727,6 +769,28 @@ export default function App() {
 
         {/* output */}
         <div className="ws-pane" style={{ flex: "1 1 0", minWidth: 0 }}>
+          {link && (
+            <div style={{ marginBottom: urlMode ? 0 : 16, border: "1px solid var(--line)", borderRadius: 12, background: "var(--field)", padding: 14 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
+                <span className="lbl" style={{ color: "var(--ink-soft)", display: "flex", alignItems: "center", gap: 7 }}>
+                  <Icon name="link" size={13} />{link.kind === "amazon" ? "Amazon Link Cleaner" : "Link Cleaner"}
+                </span>
+                <button className={"btn pri" + (copied === "link" ? " pop" : "")} style={{ fontSize: 11.5, padding: "7px 12px", borderRadius: 9 }} onClick={copyClean} disabled={!!link.warning}>
+                  <Icon name={copied === "link" ? "check" : "rows"} size={13} />{copied === "link" ? "Copied" : "Copy Clean Link"}
+                </button>
+              </div>
+              {link.warning && <div style={{ fontSize: 11.5, color: "var(--accent)", fontWeight: 600, marginBottom: 10 }}>⚠ {link.warning}</div>}
+              <div style={{ marginBottom: 8 }}>
+                <div className="lbl" style={{ color: "var(--ink-soft)", fontSize: 8.5, marginBottom: 3 }}>Original</div>
+                <div className="mono" style={{ fontSize: 11, color: "var(--ink-soft)", wordBreak: "break-all", lineHeight: 1.4 }}>{link.original}</div>
+              </div>
+              <div>
+                <div className="lbl" style={{ color: "var(--ink-soft)", fontSize: 8.5, marginBottom: 3 }}>Clean</div>
+                <div className="mono" style={{ fontSize: 12.5, color: "var(--ink)", fontWeight: 600, wordBreak: "break-all", lineHeight: 1.4 }}>{link.clean}</div>
+              </div>
+            </div>
+          )}
+          {!urlMode && (<>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", marginBottom: 16 }}>
             <button className={"btn pri" + (copied === "row" ? " pop" : "")} style={{ fontSize: 12.5, padding: "10px 16px", borderRadius: 10 }} onClick={copyRow} disabled={!hasData}>
               <Icon name={copied === "row" ? "check" : "rows"} size={15} />{copied === "row" ? "Copied" : "Copy row"}
@@ -826,6 +890,7 @@ export default function App() {
               )}
             </div>
           </div>
+          </>)}
         </div>
       </div>
     </div>
