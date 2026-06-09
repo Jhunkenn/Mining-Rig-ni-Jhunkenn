@@ -258,7 +258,9 @@ function parse(text, meta = {}) {
   const zip = /\b\d{5}(-\d{4})?\b/;
   const streetWords = /\b(st|street|ave|avenue|dr|drive|rd|road|ln|lane|blvd|boulevard|ct|court|way|pl|place|cir|circle|ter|terrace|hwy|highway|pkwy|parkway|trl|trail|loop|sq|square|run|pike|row|apt|unit|ste|suite|box)\b/i;
   const notAddr = /@|http|phone|property|book|publish|imprint|amazon|email|linkedin|website|date/i;
-  const looksAddr = (l) => !!l && !notAddr.test(l) && (/^\d{1,6}\s+\w/.test(l) || zip.test(l) || /,\s*[A-Z]{2}\b/.test(l) || streetWords.test(l));
+  // review / rating / book-format text from retail pages must never count as an address
+  const addrReject = /\b(customer\s+reviews?|out of \d|global ratings?|\d+\s+ratings?|paperback|hardcover|hardback|mass\s*market|kindle|audiobook|audible|ebook|best\s*sellers?\s*rank|add to (?:cart|list)|in stock)\b/i;
+  const looksAddr = (l) => !!l && !notAddr.test(l) && !addrReject.test(l) && (/^\d{1,6}\s+\w/.test(l) || zip.test(l) || /,\s*[A-Z]{2}\b/.test(l) || streetWords.test(l));
   let address = "";
   // labeled address: value may be inline after the label OR on the following line(s).
   // Skip UI controls like "Address Lookup" / "Address Search", and only accept inline text that looks like an address.
@@ -297,6 +299,23 @@ function parse(text, meta = {}) {
     }
   }
   address = address.replace(/\s*(?:[•|·–—-]\s*)?get\s*directions\s*$/i, "").replace(/\s{2,}/g, " ").trim();
+  // Canada411 fallback (isolated; runs ONLY if every method above produced nothing): an unlabeled address
+  // often sits on the line directly above a phone number and carries a Canadian postal code (A1A 1A1).
+  if (!address) {
+    const caPostal = /[A-Za-z]\d[A-Za-z]\s?\d[A-Za-z]\d/;                  // Canadian postal code, space optional
+    const phoneLineRe = /(?:\(\d{3}\)|\d{3})[\s.\-]?\d{3}[\s.\-]?\d{4}/;   // a line that contains a phone number
+    const stripNav = (s) => s.replace(/\s*(?:[•|·–—\-]\s*)?(?:get\s*directions|directions|map|view\s*map)\s*$/i, "").replace(/\s{2,}/g, " ").trim();
+    const caAddr = (l) => {
+      const t = stripNav(l || "");                                        // a trailing "Get Directions"/"Map" must not block a valid address
+      if (!t || notAddr.test(t) || addrReject.test(t)) return false;
+      return /^\d{1,6}\s+\w/.test(t) && (caPostal.test(t) || zip.test(t) || /,/.test(t) || streetWords.test(t));
+    };
+    for (let i = 1; i < lines.length; i++) {
+      if (phoneLineRe.test(lines[i]) && caAddr(lines[i - 1])) { address = stripNav(lines[i - 1]); break; }
+    }
+  }
+  // final safety: never return bare navigation/placeholder text as the address itself
+  if (/^(lookup|get\s*directions|directions|map|view\s*map)$/i.test(address.trim()) || addrReject.test(address)) address = "";
 
   const DISQUALIFY = /\b(fair credit|skip to (?:the )?main content|join prime)\b/i;
   const nameL = find(/^name\s*:/i);
@@ -391,13 +410,67 @@ const THEMES = [
   { name: "Noir", vars: { "--bone": "#191A1F", "--paper": "#24262D", "--ink": "#EFEDE8", "--ink-soft": "#9FA0A9", "--line": "#373A43", "--accent": "#FF6A3D", "--accent-deep": "#E0512A", "--field": "#2A2D35", "--focus": "rgba(255,106,61,.22)", "--note": "#2C2F38", "--note-line": "#444856", "--note-ink": "#F0EEE9", "--note-label": "#D2A45C", "--note-link": "#FF9269", "--note-muted": "#6B6E7A" } },
 ];
 
+// ---- minimalist inline icons (no dependencies) ----
+function Icon({ name, size = 14, style }) {
+  const p = { fill: "none", stroke: "currentColor", strokeWidth: 1.9, strokeLinecap: "round", strokeLinejoin: "round" };
+  const shapes = {
+    user: <g {...p}><circle cx="12" cy="8" r="3.5" /><path d="M5 20c0-3.5 3-5.6 7-5.6s7 2.1 7 5.6" /></g>,
+    mail: <g {...p}><rect x="3" y="5" width="18" height="14" rx="2.5" /><path d="m4 7 8 5.5L20 7" /></g>,
+    phone: <g {...p}><path d="M6 3h3l1.5 4-2 1.3a12 12 0 0 0 5.2 5.2l1.3-2 4 1.5v3a2 2 0 0 1-2.2 2A16.5 16.5 0 0 1 4 5.2 2 2 0 0 1 6 3z" /></g>,
+    pin: <g {...p}><path d="M20 10c0 6-8 11-8 11s-8-5-8-11a8 8 0 0 1 16 0z" /><circle cx="12" cy="10" r="2.5" /></g>,
+    dollar: <g {...p}><path d="M12 3v18" /><path d="M16.5 6.5H10a3 3 0 0 0 0 6h4a3 3 0 0 1 0 6H7" /></g>,
+    home: <g {...p}><path d="M4 10.5 12 4l8 6.5V19a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 19z" /><path d="M9.5 20.5V13h5v7.5" /></g>,
+    book: <g {...p}><path d="M5 4.5A1.5 1.5 0 0 1 6.5 3H19v15.5H6.5A1.5 1.5 0 0 0 5 20z" /><path d="M5 18.5A1.5 1.5 0 0 1 6.5 17H19" /></g>,
+    tag: <g {...p}><path d="M19 20.5l-7-4.8-7 4.8V5.5A1.5 1.5 0 0 1 6.5 4h11A1.5 1.5 0 0 1 19 5.5z" /></g>,
+    cal: <g {...p}><rect x="4" y="5" width="16" height="16" rx="2.5" /><path d="M4 10h16M8 3v4M16 3v4" /></g>,
+    cart: <g {...p}><circle cx="9.5" cy="20" r="1.3" /><circle cx="18" cy="20" r="1.3" /><path d="M3 4h2l2.2 11a1.5 1.5 0 0 0 1.5 1.2h8.6a1.5 1.5 0 0 0 1.5-1.2L21 7H6" /></g>,
+    globe: <g {...p}><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3c2.5 2.5 3.8 5.7 3.8 9S14.5 18.5 12 21c-2.5-2.5-3.8-5.7-3.8-9S9.5 5.5 12 3z" /></g>,
+    linkedin: <g {...p}><rect x="3" y="3" width="18" height="18" rx="3" /><path d="M7 10.5V17M7 7.2v.01M11 17v-3.6a2 2 0 0 1 4 0V17" /></g>,
+    check: <g {...p}><path d="M5 12.5 10 17.5 19 7" /></g>,
+    rows: <g {...p}><rect x="3" y="4.5" width="18" height="5.5" rx="1.5" /><rect x="3" y="14" width="18" height="5.5" rx="1.5" /></g>,
+    cols: <g {...p}><rect x="4.5" y="3" width="5.5" height="18" rx="1.5" /><rect x="14" y="3" width="5.5" height="18" rx="1.5" /></g>,
+    inbox: <g {...p}><path d="M3 13h5l1.5 2.5h5L16 13h5" /><path d="M6 5.5 3 13v5a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5L18 5.5A2 2 0 0 0 16.2 4.5H7.8A2 2 0 0 0 6 5.5z" /></g>,
+    spark: <g {...p}><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10z" /></g>,
+    layers: <g {...p}><path d="M12 3 3 7.5 12 12l9-4.5L12 3z" /><path d="M3 12l9 4.5L21 12M3 16.5 12 21l9-4.5" /></g>,
+  };
+  return <svg width={size} height={size} viewBox="0 0 24 24" style={{ flexShrink: 0, display: "block", ...style }}>{shapes[name] || null}</svg>;
+}
+
+// display grouping for the lead profile (independent of the 16-cell copy order in SLOTS)
+const SECTIONS = [
+  { title: "Contact Information", icon: "mail", fields: [
+    { key: "email", label: "Email", icon: "mail" },
+    { key: "phone", label: "Phone", icon: "phone" },
+    { key: "otherPhone", label: "Other Phone", icon: "phone" },
+    { key: "address", label: "Address", icon: "pin" },
+  ] },
+  { title: "Property Information", icon: "home", fields: [
+    { key: "propertyValue", label: "Property Value", icon: "dollar" },
+  ] },
+  { title: "Book Information", icon: "book", fields: [
+    { key: "bookTitle", label: "Book Title", icon: "book" },
+    { key: "imprint", label: "Imprint", icon: "tag" },
+    { key: "datePublished", label: "Date Published", icon: "cal" },
+  ] },
+  { title: "Online Presence", icon: "globe", fields: [
+    { key: "amazon", label: "Amazon", icon: "cart", link: true },
+    { key: "website", label: "Website", icon: "globe", link: true },
+    { key: "linkedin", label: "LinkedIn", icon: "linkedin", link: true },
+  ] },
+];
+const FIELDS = ["firstName", "lastName", "email", "phone", "otherPhone", "address", "propertyValue", "bookTitle", "imprint", "datePublished", "amazon", "website", "linkedin"];
+const SOURCES = ["Amazon", "TruePeopleSearch", "Canada411", "WhitePages", "Barnes & Noble", "Goodreads"];
+
 export default function App() {
   const [raw, setRaw] = useState("");
   const [copied, setCopied] = useState("");
+  const [theme, setTheme] = useState(0);
+  const [stats, setStats] = useState({ leads: 0, fields: 0, ready: 0 });
 
   const rec = useMemo(() => parse(raw), [raw]);
   const built = useMemo(() => buildPhones(rec.phones), [rec.phones]);
 
+  // ---- copy: UNCHANGED 16-cell SLOTS order + clipboard payload ----
   const valueOf = (slot) => {
     if (slot.blank) return "";
     if (slot.key === "phone") return built[0]?.display || "";
@@ -406,104 +479,238 @@ export default function App() {
   };
   const cells = useMemo(() => SLOTS.map(valueOf), [rec, built]);
 
+  // value for a single field key (for the grouped display only)
+  const fieldVal = (key) => {
+    if (key === "phone") return built[0]?.display || "";
+    if (key === "otherPhone") return built.slice(1).map((n) => n.display).join(", ");
+    return rec[key] || "";
+  };
+
+  const populated = FIELDS.filter((k) => fieldVal(k)).length;
+  const completeness = Math.round((populated / FIELDS.length) * 100);
+  const hasData = populated > 0;
+  const tier = completeness >= 90 ? "Complete" : completeness >= 70 ? "Strong" : completeness >= 40 ? "Good" : "Sparse";
+  const fullName = [rec.firstName, rec.lastName].filter(Boolean).join(" ").trim();
+  const initials = ((rec.firstName?.[0] || "") + (rec.lastName?.[0] || "")).toUpperCase() || "—";
+  const fmt = (n) => n.toLocaleString();
+  const successRate = stats.leads ? Math.round((stats.ready / stats.leads) * 100) : null;
+
+  const flash = (k) => { setCopied(k); setTimeout(() => setCopied(""), 1600); };
+  const tally = () => setStats((s) => ({ leads: s.leads + 1, fields: s.fields + populated, ready: s.ready + (completeness >= 70 ? 1 : 0) }));
   const copyRow = async () => {
     const plain = cells.map(q).join("\t");
     const html = `<table><tr>${cells.map((c) => `<td>${esc(c)}</td>`).join("")}</tr></table>`;
-    if (await clip(plain, html)) flash("row");
+    if (await clip(plain, html)) { flash("row"); tally(); }
   };
   const copyCol = async () => {
     const plain = cells.map(q).join("\n");
     const html = `<table>${cells.map((c) => `<tr><td>${esc(c)}</td></tr>`).join("")}</table>`;
-    if (await clip(plain, html)) flash("col");
+    if (await clip(plain, html)) { flash("col"); tally(); }
   };
-  const flash = (k) => { setCopied(k); setTimeout(() => setCopied(""), 1600); };
 
-  const [theme, setTheme] = useState(0);
   const vars = THEMES[theme].vars;
+  const statCards = [
+    { label: "Leads Processed", value: fmt(stats.leads), icon: "inbox" },
+    { label: "Fields Extracted", value: fmt(stats.fields), icon: "check" },
+    { label: "Success Rate", value: successRate == null ? "—" : successRate + "%", icon: "spark" },
+  ];
+
   const css = `
     @import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
     .lx * { box-sizing: border-box; }
-    .lx { font-family: 'Hanken Grotesk', sans-serif; color: var(--ink); }
+    .lx { font-family: 'Hanken Grotesk', sans-serif; color: var(--ink); -webkit-font-smoothing: antialiased; transition: background-color .45s ease, color .45s ease; }
     .mono { font-family: 'JetBrains Mono', monospace; }
-    .lx textarea, .lx select, .lx input, .lx button { font-family: inherit; outline: none; }
-    .lx textarea:focus, .lx input:focus, .lx select:focus { border-color: var(--accent) !important; box-shadow: 0 0 0 3px var(--focus); }
-    .btn { cursor: pointer; border: none; transition: background .15s, transform .08s; }
-    .btn:active { transform: translateY(1px); }
-    .pri { background: var(--accent); color: #fff; font-weight: 700; }
-    .pri:hover { background: var(--accent-deep); }
+    .lx textarea, .lx button { font-family: inherit; outline: none; }
+    .lx textarea { transition: border-color .18s, box-shadow .18s, background-color .45s ease; }
+    .lx textarea:focus { border-color: var(--accent) !important; box-shadow: 0 0 0 3px var(--focus); }
+    .lbl { font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 1.2px; text-transform: uppercase; font-weight: 600; }
+    .btn { cursor: pointer; border: none; display: inline-flex; align-items: center; gap: 7px; transition: background .18s, transform .1s, box-shadow .18s, border-color .18s, color .18s, opacity .18s; }
+    .btn:active:not(:disabled) { transform: translateY(1px) scale(.99); }
+    .btn:disabled { opacity: .4; cursor: not-allowed; }
+    .pri { background: var(--accent); color: #fff; font-weight: 700; box-shadow: 0 5px 16px -6px var(--focus); }
+    .pri:hover:not(:disabled) { background: var(--accent-deep); transform: translateY(-1px); box-shadow: 0 8px 20px -6px var(--focus); }
     .gho { background: var(--field); color: var(--ink); border: 1px solid var(--line); font-weight: 600; }
-    .gho:hover { border-color: var(--ink); }
-    .lbl { font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--ink-soft); font-weight: 600; }
+    .gho:hover:not(:disabled) { border-color: var(--ink); transform: translateY(-1px); }
+    .pop { animation: pop .4s ease; }
+    @keyframes pop { 0%{transform:scale(.92)} 45%{transform:scale(1.07)} 100%{transform:scale(1)} }
+    .swatch { cursor:pointer; display:flex; align-items:center; gap:7px; padding:6px 11px 6px 8px; border-radius:9px; font-family:'JetBrains Mono',monospace; font-size:10.5px; font-weight:600; transition: background .2s, color .2s, border-color .2s, transform .14s, box-shadow .2s; }
+    .swatch:hover { transform: translateY(-1px); }
+    .dot { width:13px; height:13px; border-radius:50%; transition: transform .2s; }
+    .swatch:hover .dot { transform: scale(1.18); }
+    .stat { background: var(--field); border:1px solid var(--line); border-radius:12px; padding:10px 14px; display:flex; align-items:center; gap:11px; min-width:150px; flex:1; transition: transform .2s, box-shadow .2s, border-color .2s, background-color .45s ease; }
+    .stat:hover { transform: translateY(-2px); box-shadow: 0 12px 24px -16px rgba(0,0,0,.45); }
+    .stat-ico { width:30px; height:30px; border-radius:8px; display:flex; align-items:center; justify-content:center; color: var(--accent); background: var(--focus); flex-shrink:0; }
+    .sheet-wrap { position: relative; transition: transform .25s ease; }
+    .sheet-wrap::before, .sheet-wrap::after { content:''; position:absolute; inset:0; border-radius:7px; background: var(--note); box-shadow: 0 12px 26px -14px rgba(20,16,4,.4); transition: background-color .45s ease; }
+    .sheet-wrap::before { transform: rotate(-1.5deg) translate(-6px,4px); opacity:.5; }
+    .sheet-wrap::after { transform: rotate(1.1deg) translate(6px,6px); opacity:.32; }
+    .sheet { position: relative; z-index:1; background: var(--note); border-radius:7px; padding: 30px 24px 22px; overflow:hidden; box-shadow: 0 1px 0 rgba(255,255,255,.4) inset, 0 18px 40px -16px rgba(20,16,4,.5), 0 3px 8px rgba(20,16,4,.16); transition: transform .25s ease, box-shadow .25s ease, background-color .45s ease; }
+    .sheet::before { content:''; position:absolute; inset:0; pointer-events:none; opacity:.05; mix-blend-mode:multiply; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
+    .sheet-wrap:hover { transform: translateY(-3px); }
+    .sheet-wrap:hover .sheet { box-shadow: 0 1px 0 rgba(255,255,255,.55) inset, 0 28px 52px -16px rgba(20,16,4,.55), 0 5px 12px rgba(20,16,4,.2); }
+    .tape { position:absolute; top:-12px; left:50%; width:122px; height:30px; transform: translateX(-50%) rotate(-2.2deg); background: linear-gradient(135deg, rgba(255,255,255,.55), rgba(255,255,255,.12) 55%, rgba(255,255,255,.32)); border:1px solid rgba(255,255,255,.35); border-radius:2px; box-shadow: 0 3px 8px rgba(0,0,0,.10); z-index:3; }
+    .tape::after { content:''; position:absolute; left:16%; top:0; bottom:0; width:1px; background: rgba(255,255,255,.45); }
+    .avatar { width:46px; height:46px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:16px; color:#fff; background: linear-gradient(135deg, var(--accent), var(--accent-deep)); box-shadow: 0 5px 14px -5px var(--focus); flex-shrink:0; }
+    .pbar { height:8px; border-radius:99px; background: color-mix(in srgb, var(--note-line) 55%, transparent); overflow:hidden; }
+    .pfill { height:100%; border-radius:99px; background: linear-gradient(90deg, var(--note-link), var(--accent)); transition: width .55s cubic-bezier(.4,0,.2,1); }
+    .frow { display:flex; align-items:flex-start; gap:10px; padding:7px 8px; border-radius:8px; transition: background .15s; }
+    .frow:hover { background: color-mix(in srgb, var(--note-line) 26%, transparent); }
+    .fico { color: var(--note-label); margin-top:1px; }
+    .chip { display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:99px; font-size:11px; font-weight:700; }
+    .srcchip { font-family:'JetBrains Mono',monospace; font-size:10.5px; font-weight:600; padding:5px 10px; border-radius:99px; border:1px solid var(--note-line); color:var(--note-ink); background: color-mix(in srgb, var(--note-line) 18%, transparent); transition: transform .15s; }
+    .srcchip:hover { transform: translateY(-1px); }
+    .divline { flex:1; height:1px; background: var(--note-line); opacity:.6; margin-left:4px; }
+    @keyframes fadeUp { from { opacity:0; transform: translateY(10px); } to { opacity:1; transform:none; } }
+    @keyframes fadeIn { from { opacity:0; } to { opacity:1; } }
+    @keyframes drawCheck { from { stroke-dashoffset: 30; } to { stroke-dashoffset: 0; } }
+    .rise { animation: fadeUp .42s cubic-bezier(.2,.7,.3,1) both; }
+    .fin { animation: fadeIn .42s ease both; }
+    .ck path { stroke-dasharray: 30; animation: drawCheck .5s ease forwards; }
+    @media (prefers-reduced-motion: reduce) { .lx *, .lx *::before, .lx *::after { animation: none !important; transition: none !important; } }
   `;
 
   return (
-    <div className="lx" style={{ ...vars, background: "var(--bone)", minHeight: 600, padding: "clamp(16px,3vw,32px)" }}>
+    <div className="lx" style={{ ...vars, background: "var(--bone)", minHeight: 600, padding: "clamp(16px,3vw,34px)" }}>
       <style>{css}</style>
 
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "flex-end", justifyContent: "space-between", marginBottom: 20 }}>
-        <div>
-          <div className="mono" style={{ fontSize: 11, letterSpacing: 2, color: "var(--accent)", fontWeight: 700, textTransform: "uppercase" }}>Lead Tools</div>
-          <h1 style={{ margin: "4px 0 0", fontSize: "clamp(24px,4vw,34px)", fontWeight: 800, letterSpacing: -1 }}>Jhunkenn's Mining Rig</h1>
+      {/* header */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 18, alignItems: "flex-start", justifyContent: "space-between", marginBottom: 18 }}>
+        <div style={{ minWidth: 0 }}>
+          <div className="mono" style={{ fontSize: 10.5, letterSpacing: 2, color: "var(--accent)", fontWeight: 700, textTransform: "uppercase" }}>Lead Extraction Workbench</div>
+          <h1 style={{ margin: "5px 0 4px", fontSize: "clamp(24px,4vw,34px)", fontWeight: 800, letterSpacing: -1 }}>Jhunkenn's Mining Rig</h1>
+          <p style={{ margin: 0, fontSize: 13.5, color: "var(--ink-soft)" }}>Parse search results into structured lead data.</p>
         </div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {THEMES.map((t, i) => (
-            <button key={t.name} onClick={() => setTheme(i)} title={t.name} className="btn"
-              style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", borderRadius: 8,
-                background: theme === i ? "var(--ink)" : "var(--field)", color: theme === i ? "var(--bone)" : "var(--ink)",
-                border: `1px solid ${theme === i ? "var(--ink)" : "var(--line)"}`,
-                fontFamily: "'JetBrains Mono', monospace", fontSize: 10.5, fontWeight: 600 }}>
-              <span style={{ width: 11, height: 11, borderRadius: "50%", background: t.vars["--accent"], boxShadow: `inset 0 0 0 2px ${t.vars["--note"]}` }} />
-              {t.name}
-            </button>
-          ))}
+          {THEMES.map((t, i) => {
+            const active = theme === i;
+            return (
+              <button key={t.name} onClick={() => setTheme(i)} title={t.name} className="swatch"
+                style={{ background: active ? "var(--ink)" : "var(--field)", color: active ? "var(--bone)" : "var(--ink)",
+                  border: `1px solid ${active ? "var(--ink)" : "var(--line)"}`, boxShadow: active ? "0 6px 16px -6px var(--focus)" : "none" }}>
+                <span className="dot" style={{ background: t.vars["--accent"], boxShadow: `inset 0 0 0 2px ${t.vars["--note"]}, 0 0 0 1px rgba(0,0,0,.08)` }} />
+                {t.name}
+              </button>
+            );
+          })}
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(310px,1fr))", gap: 22, alignItems: "start" }}>
-        {/* input */}
-        <div style={{ minWidth: 0 }}>
-          <div className="lbl" style={{ marginBottom: 6 }}>Paste everything from your search tool</div>
-          <textarea value={raw} onChange={(e) => setRaw(e.target.value)} rows={22}
-            placeholder="Paste your copied search results here…"
-            style={{ width: "100%", fontSize: 13, padding: 14, border: "1px solid var(--line)", borderRadius: 10, background: "var(--field)", color: "var(--ink)", resize: "vertical", lineHeight: 1.55 }} />
-        </div>
-
-        {/* output: sticky note + copy controls */}
-        <div style={{ minWidth: 0 }}>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", marginBottom: 16 }}>
-            <button className="btn pri" style={{ fontSize: 12.5, padding: "10px 16px", borderRadius: 9 }} onClick={copyRow}>{copied === "row" ? "Copied ✓" : "Copy → row"}</button>
-            <button className="btn gho" style={{ fontSize: 12.5, padding: "10px 16px", borderRadius: 9 }} onClick={copyCol}>{copied === "col" ? "Copied ✓" : "Copy ↓ column"}</button>
-          </div>
-
-          <div style={{ position: "relative", paddingTop: 10 }}>
-            <div style={{ position: "absolute", top: 0, left: "50%", transform: "translateX(-50%) rotate(-2deg)", width: 96, height: 26, background: "rgba(255,255,255,.55)", border: "1px solid rgba(0,0,0,.05)", borderRadius: 2, zIndex: 2 }} />
-            <div style={{ transform: "rotate(-.6deg)", background: "var(--note)", borderRadius: 4, padding: "24px 22px 20px", boxShadow: "0 14px 30px -10px rgba(40,33,10,.4), 0 2px 6px rgba(40,33,10,.15)" }}>
-              {SLOTS.map((slot, idx) => {
-                if (slot.blank) {
-                  return <div key={idx} style={{ height: 14, borderBottom: "1px dashed var(--note-line)", opacity: .5 }} />;
-                }
-                const v = valueOf(slot);
-                const isLink = ["amazon", "website", "linkedin"].includes(slot.key);
-                return (
-                  <div key={idx} style={{ padding: "8px 0", borderBottom: idx < SLOTS.length - 1 ? "1px dashed var(--note-line)" : "none" }}>
-                    <div className="lbl" style={{ color: "var(--note-label)", marginBottom: 2 }}>{slot.label}</div>
-                    {v ? (
-                      isLink ? (
-                        <a href={v} target="_blank" rel="noreferrer" className="mono" style={{ fontSize: 11.5, color: "var(--note-link)", wordBreak: "break-all", textDecoration: "none" }}>{v}</a>
-                      ) : (
-                        <div className={slot.key === "phone" || slot.key === "otherPhone" ? "mono" : ""} style={{ fontSize: slot.key.includes("hone") ? 13 : 14.5, fontWeight: (slot.key === "firstName" || slot.key === "lastName") ? 700 : 500, whiteSpace: "pre-wrap", lineHeight: 1.45, wordBreak: "break-word", color: "var(--note-ink)" }}>{v}</div>
-                      )
-                    ) : (
-                      <div style={{ fontSize: 13, color: "var(--note-muted)" }}>—</div>
-                    )}
-                  </div>
-                );
-              })}
+      {/* session statistics */}
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 24 }}>
+        {statCards.map((s) => (
+          <div key={s.label} className="stat">
+            <span className="stat-ico"><Icon name={s.icon} size={16} /></span>
+            <div>
+              <div className="lbl" style={{ color: "var(--ink-soft)" }}>{s.label}</div>
+              <div className="mono" style={{ fontSize: 18, fontWeight: 700, marginTop: 1 }}>{s.value}</div>
             </div>
           </div>
+        ))}
+      </div>
 
-          <div className="mono" style={{ fontSize: 10.5, color: "var(--ink-soft)", marginTop: 14, lineHeight: 1.6 }}>
-            16 cells in your exact order · blanks kept in position so columns never shift · row → fills across · column → fills down
+      {/* workspace */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(320px,1fr))", gap: 24, alignItems: "start" }}>
+        {/* input */}
+        <div style={{ minWidth: 0 }}>
+          <div className="lbl" style={{ color: "var(--ink-soft)", marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span>Paste Search Results</span>
+            <span style={{ opacity: .65 }}>{raw ? raw.length.toLocaleString() + " chars" : ""}</span>
+          </div>
+          <textarea value={raw} onChange={(e) => setRaw(e.target.value)} rows={24}
+            placeholder="Paste a copied profile or book page here — Amazon, TruePeopleSearch, WhitePages, and more…"
+            style={{ width: "100%", fontSize: 13, padding: 15, border: "1px solid var(--line)", borderRadius: 12, background: "var(--field)", color: "var(--ink)", resize: "vertical", lineHeight: 1.55 }} />
+        </div>
+
+        {/* output */}
+        <div style={{ minWidth: 0 }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", marginBottom: 16 }}>
+            <button className={"btn pri" + (copied === "row" ? " pop" : "")} style={{ fontSize: 12.5, padding: "10px 16px", borderRadius: 10 }} onClick={copyRow} disabled={!hasData}>
+              <Icon name={copied === "row" ? "check" : "rows"} size={15} />{copied === "row" ? "Copied" : "Copy row"}
+            </button>
+            <button className={"btn gho" + (copied === "col" ? " pop" : "")} style={{ fontSize: 12.5, padding: "10px 16px", borderRadius: 10 }} onClick={copyCol} disabled={!hasData}>
+              <Icon name={copied === "col" ? "check" : "cols"} size={15} />{copied === "col" ? "Copied" : "Copy column"}
+            </button>
+          </div>
+
+          <div className="sheet-wrap">
+            <div className="tape" />
+            <div className={"sheet " + (hasData ? "rise" : "fin")} key={hasData ? "data" : "empty"}>
+              {hasData ? (
+                <>
+                  {/* name header + status */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 13, marginBottom: 18 }}>
+                    <div className="avatar">{initials}</div>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ fontSize: 22, fontWeight: 800, color: "var(--note-ink)", lineHeight: 1.12, letterSpacing: -.3, wordBreak: "break-word" }}>{fullName || "Unnamed Lead"}</div>
+                      <div key={populated} className="chip fin" style={{ marginTop: 7, color: "var(--note-link)", background: "color-mix(in srgb, var(--note-link) 14%, transparent)" }}>
+                        <Icon name="check" size={12} className="ck" />
+                        {completeness >= 70 ? `Lead Ready · ${populated} fields` : `${populated} field${populated === 1 ? "" : "s"} extracted`}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* lead quality */}
+                  <div style={{ marginBottom: 22 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
+                      <span className="lbl" style={{ color: "var(--note-label)" }}>Lead Quality</span>
+                      <span className="mono" style={{ fontSize: 12, fontWeight: 700, color: "var(--note-ink)" }}>{completeness}% · {tier}</span>
+                    </div>
+                    <div className="pbar"><div className="pfill" style={{ width: completeness + "%" }} /></div>
+                  </div>
+
+                  {/* grouped sections */}
+                  {SECTIONS.map((sec) => (
+                    <div key={sec.title} style={{ marginBottom: 16 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+                        <span style={{ color: "var(--note-label)" }}><Icon name={sec.icon} size={13} /></span>
+                        <span className="lbl" style={{ color: "var(--note-label)" }}>{sec.title}</span>
+                        <span className="divline" />
+                      </div>
+                      {sec.fields.map((f) => {
+                        const v = fieldVal(f.key);
+                        const isPhone = f.key === "phone" || f.key === "otherPhone";
+                        return (
+                          <div className="frow" key={f.key}>
+                            <span className="fico"><Icon name={f.icon} size={14} /></span>
+                            <div style={{ minWidth: 0, flex: 1 }}>
+                              <div className="lbl" style={{ color: "var(--note-label)", marginBottom: 1, fontSize: 8.5, opacity: .85 }}>{f.label}</div>
+                              {v ? (
+                                f.link ? (
+                                  <a href={v} target="_blank" rel="noreferrer" className="mono" style={{ fontSize: 11.5, color: "var(--note-link)", wordBreak: "break-all", textDecoration: "none" }}>{v}</a>
+                                ) : (
+                                  <div className={isPhone ? "mono" : ""} style={{ fontSize: isPhone ? 12.5 : 13.5, color: "var(--note-ink)", fontWeight: 500, whiteSpace: "pre-wrap", lineHeight: 1.4, wordBreak: "break-word" }}>{v}</div>
+                                )
+                              ) : (
+                                <div style={{ fontSize: 12.5, color: "var(--note-muted)" }}>—</div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))}
+
+                  <div className="mono" style={{ fontSize: 10, color: "var(--note-muted)", marginTop: 8, paddingTop: 12, borderTop: "1px dashed var(--note-line)", lineHeight: 1.6 }}>
+                    Copy row → fills across · Copy column → fills down · 16 cells, blanks preserved
+                  </div>
+                </>
+              ) : (
+                /* empty state */
+                <div style={{ textAlign: "center", padding: "30px 12px 24px" }}>
+                  <div style={{ width: 56, height: 56, margin: "0 auto 16px", borderRadius: 15, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--note-label)", background: "color-mix(in srgb, var(--note-line) 32%, transparent)" }}>
+                    <Icon name="inbox" size={27} />
+                  </div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: "var(--note-ink)", marginBottom: 6 }}>Paste search results to begin</div>
+                  <div style={{ fontSize: 12.5, color: "var(--note-muted)", marginBottom: 18, lineHeight: 1.5, maxWidth: 280, marginLeft: "auto", marginRight: "auto" }}>
+                    Drop a copied profile or book page into the box on the left and the lead fields fill in automatically.
+                  </div>
+                  <div className="lbl" style={{ color: "var(--note-label)", marginBottom: 9 }}>Supported Sources</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "center" }}>
+                    {SOURCES.map((s) => <span key={s} className="srcchip">{s}</span>)}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
