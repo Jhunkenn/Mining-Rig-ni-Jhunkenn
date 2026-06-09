@@ -329,8 +329,8 @@ function parse(text, meta = {}) {
   // either on the next line or inline right after the name (e.g. "Amber Shoebridge Age 52, Born May 1974").
   // Runs before the generic fallback, scanning only the lead region above any relatives/background section.
   if (!name) {
-    const psName = /^([A-Z][A-Za-z'’.\-]+(?:\s+[A-Z][A-Za-z'’.\-]+){1,2})$/;
-    const psInline = /^([A-Z][A-Za-z'’.\-]+(?:\s+[A-Z][A-Za-z'’.\-]+){1,2})\s+(?:age|address|born|dob|date\s+of\s+birth)\b/i;
+    const psName = /^([A-Z][A-Za-z'’.\-]*(?:\s+[A-Z][A-Za-z'’.\-]*){1,2})$/;
+    const psInline = /^([A-Z][A-Za-z'’.\-]*(?:\s+[A-Z][A-Za-z'’.\-]*){1,2})\s+(?:age|address|born|dob|date\s+of\s+birth)\b/i;
     const psMarker = /^(?:age|address|born|dob|date\s+of\s+birth)\b/i;
     for (let i = 0; i < leadEnd; i++) {
       let cand = "";
@@ -354,8 +354,8 @@ function parse(text, meta = {}) {
   // on or directly above an "Age / Born / DOB / Date of Birth" line; the required birth marker keeps this
   // people-search-only (Amazon/book pages never match). First birth-anchored name is the lead, not a relative.
   if (!name) {
-    const psN = /^([A-Z][A-Za-z'’.\-]+(?:\s+[A-Z][A-Za-z'’.\-]+){1,3})$/;
-    const psI = /^([A-Z][A-Za-z'’.\-]+(?:\s+[A-Z][A-Za-z'’.\-]+){1,3})\s+(?:age|born|dob|date\s+of\s+birth)\b/i;
+    const psN = /^([A-Z][A-Za-z'’.\-]*(?:\s+[A-Z][A-Za-z'’.\-]*){1,3})$/;
+    const psI = /^([A-Z][A-Za-z'’.\-]*(?:\s+[A-Z][A-Za-z'’.\-]*){1,3})\s+(?:age|born|dob|date\s+of\s+birth)\b/i;
     const psM = /^(?:age\b|born\b|dob\b|date\s+of\s+birth\b)/i;
     for (let i = 0; i < lines.length; i++) {
       let cand = "";
