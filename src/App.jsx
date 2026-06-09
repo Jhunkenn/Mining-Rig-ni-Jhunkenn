@@ -487,6 +487,19 @@ const SECTIONS = [
 ];
 const FIELDS = ["firstName", "lastName", "email", "phone", "otherPhone", "address", "propertyValue", "bookTitle", "imprint", "datePublished", "amazon", "website", "linkedin"];
 const SOURCES = ["Amazon", "TruePeopleSearch", "Canada411", "WhitePages", "Barnes & Noble", "Goodreads"];
+const VERSION = "0.9.0"; // display only — bump this string as you release; not tied to any logic
+// Read-only source classifier for UI feedback. Sniffs the raw paste for site signals to show a
+// "Detected Source" badge. It does NOT feed parse()/extraction in any way — purely a confidence cue.
+function detectSource(text) {
+  const t = text || "";
+  if (/truepeoplesearch/i.test(t)) return "TruePeopleSearch";
+  if (/whitepages/i.test(t)) return "WhitePages";
+  if (/canada\s?411/i.test(t)) return "Canada411";
+  if (/goodreads/i.test(t)) return "Goodreads";
+  if (/barnes\s*&?\s*noble|barnesandnoble/i.test(t)) return "Barnes & Noble";
+  if (/amazon\.[a-z]|\bASIN\b|\(\s*authors?\s*\)|kindle\s+direct\s+publishing/i.test(t)) return "Amazon Author Page";
+  return "";
+}
 
 export default function App() {
   const [raw, setRaw] = useState("");
@@ -496,6 +509,7 @@ export default function App() {
 
   const rec = useMemo(() => parse(raw), [raw]);
   const built = useMemo(() => buildPhones(rec.phones), [rec.phones]);
+  const source = useMemo(() => detectSource(raw), [raw]);
 
   // ---- copy: UNCHANGED 16-cell SLOTS order + clipboard payload ----
   const valueOf = (slot) => {
@@ -564,17 +578,17 @@ export default function App() {
     .swatch:hover { transform: translateY(-1px); }
     .dot { width:13px; height:13px; border-radius:50%; transition: transform .2s; }
     .swatch:hover .dot { transform: scale(1.18); }
-    .stat { background: var(--field); border:1px solid var(--line); border-radius:12px; padding:10px 14px; display:flex; align-items:center; gap:11px; min-width:150px; flex:1; transition: transform .2s, box-shadow .2s, border-color .2s, background-color .45s ease; }
+    .stat { background: var(--field); border:1px solid var(--line); border-radius:12px; padding:9px 15px; display:flex; align-items:center; gap:11px; min-width:128px; flex:0 1 auto; transition: transform .2s, box-shadow .2s, border-color .2s, background-color .45s ease; }
     .stat:hover { transform: translateY(-2px); box-shadow: 0 12px 24px -16px rgba(0,0,0,.45); }
     .stat-ico { width:30px; height:30px; border-radius:8px; display:flex; align-items:center; justify-content:center; color: var(--accent); background: var(--focus); flex-shrink:0; }
     .sheet-wrap { position: relative; transition: transform .25s ease; }
     .sheet-wrap::before, .sheet-wrap::after { content:''; position:absolute; inset:0; border-radius:7px; background: var(--note); box-shadow: 0 12px 26px -14px rgba(20,16,4,.4); transition: background-color .45s ease; }
     .sheet-wrap::before { transform: rotate(-1.5deg) translate(-6px,4px); opacity:.5; }
     .sheet-wrap::after { transform: rotate(1.1deg) translate(6px,6px); opacity:.32; }
-    .sheet { position: relative; z-index:1; background: var(--note); border-radius:7px; padding: 30px 24px 22px; overflow:hidden; box-shadow: 0 1px 0 rgba(255,255,255,.4) inset, 0 18px 40px -16px rgba(20,16,4,.5), 0 3px 8px rgba(20,16,4,.16); transition: transform .25s ease, box-shadow .25s ease, background-color .45s ease; }
+    .sheet { position: relative; z-index:1; background: var(--note); border-radius:7px; padding: 30px 24px 22px; overflow:hidden; box-shadow: 0 1px 0 rgba(255,255,255,.45) inset, 0 26px 54px -18px rgba(20,16,4,.6), 0 6px 14px rgba(20,16,4,.2); transition: transform .25s ease, box-shadow .25s ease, background-color .45s ease; }
     .sheet::before { content:''; position:absolute; inset:0; pointer-events:none; opacity:.05; mix-blend-mode:multiply; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
     .sheet-wrap:hover { transform: translateY(-3px); }
-    .sheet-wrap:hover .sheet { box-shadow: 0 1px 0 rgba(255,255,255,.55) inset, 0 28px 52px -16px rgba(20,16,4,.55), 0 5px 12px rgba(20,16,4,.2); }
+    .sheet-wrap:hover .sheet { box-shadow: 0 1px 0 rgba(255,255,255,.6) inset, 0 36px 64px -18px rgba(20,16,4,.62), 0 8px 18px rgba(20,16,4,.24); }
     .tape { position:absolute; top:-12px; left:50%; width:122px; height:30px; transform: translateX(-50%) rotate(-2.2deg); background: linear-gradient(135deg, rgba(255,255,255,.55), rgba(255,255,255,.12) 55%, rgba(255,255,255,.32)); border:1px solid rgba(255,255,255,.35); border-radius:2px; box-shadow: 0 3px 8px rgba(0,0,0,.10); z-index:3; }
     .tape::after { content:''; position:absolute; left:16%; top:0; bottom:0; width:1px; background: rgba(255,255,255,.45); }
     .avatar { width:46px; height:46px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:16px; color:#fff; background: linear-gradient(135deg, var(--accent), var(--accent-deep)); box-shadow: 0 5px 14px -5px var(--focus); flex-shrink:0; }
@@ -604,10 +618,11 @@ export default function App() {
       <div style={{ display: "flex", flexWrap: "wrap", gap: 18, alignItems: "flex-start", justifyContent: "space-between", marginBottom: 18 }}>
         <div style={{ minWidth: 0 }}>
           <div className="mono" style={{ fontSize: 10.5, letterSpacing: 2, color: "var(--accent)", fontWeight: 700, textTransform: "uppercase" }}>Lead Extraction Workbench</div>
-          <h1 style={{ margin: "5px 0 4px", fontSize: "clamp(24px,4vw,34px)", fontWeight: 800, letterSpacing: -1 }}>Jhunkenn's Mining Rig</h1>
+          <h1 style={{ margin: "5px 0 4px", fontSize: "clamp(24px,4vw,34px)", fontWeight: 800, letterSpacing: -1 }}><span style={{ color: "var(--accent)", marginRight: 6 }}>⛏</span>Jhunkenn's Mining Rig</h1>
           <p style={{ margin: 0, fontSize: 13.5, color: "var(--ink-soft)" }}>Parse search results into structured lead data.</p>
         </div>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+          <span className="mono" style={{ fontSize: 10, fontWeight: 600, color: "var(--ink-soft)", padding: "5px 9px", borderRadius: 99, border: "1px solid var(--line)", background: "var(--field)" }}>v{VERSION}</span>
           {THEMES.map((t, i) => {
             const active = theme === i;
             return (
@@ -669,9 +684,16 @@ export default function App() {
                     <div className="avatar">{initials}</div>
                     <div style={{ minWidth: 0, flex: 1 }}>
                       <div style={{ fontSize: 22, fontWeight: 800, color: "var(--note-ink)", lineHeight: 1.12, letterSpacing: -.3, wordBreak: "break-word" }}>{fullName || "Unnamed Lead"}</div>
-                      <div key={populated} className="chip fin" style={{ marginTop: 7, color: "var(--note-link)", background: "color-mix(in srgb, var(--note-link) 14%, transparent)" }}>
-                        <Icon name="check" size={12} className="ck" />
-                        {completeness >= 70 ? `Lead Ready · ${populated} fields` : `${populated} field${populated === 1 ? "" : "s"} extracted`}
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", marginTop: 7 }}>
+                        <div key={populated} className="chip fin" style={{ color: "var(--note-link)", background: "color-mix(in srgb, var(--note-link) 14%, transparent)" }}>
+                          <Icon name="check" size={12} className="ck" />
+                          {completeness >= 70 ? `Lead Ready · ${populated} fields` : `${populated} field${populated === 1 ? "" : "s"} extracted`}
+                        </div>
+                        {source && (
+                          <div className="chip fin" style={{ fontWeight: 600, color: "var(--note-label)", background: "color-mix(in srgb, var(--note-line) 22%, transparent)" }}>
+                            <Icon name="check" size={11} /> {source}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
