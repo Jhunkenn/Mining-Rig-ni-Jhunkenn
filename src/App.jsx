@@ -63,7 +63,7 @@ function authorName(text) {
   const tagged = text.match(/([A-Z][A-Za-z'’.\-]*(?:[ \t]+[A-Z][A-Za-z'’.\-]*){0,2})[ \t]*\(\s*authors?\s*\)/i);
   if (tagged && personOK(tagged[1], 1)) return clean(tagged[1]);
   // 2) "by NAME" — but not "sold by", "shipped by", "published by", etc.
-  const badBefore = /(sold|ship|ships|shipped|fulfil|fulfill|fulfilled|dispatch|dispatched|publish|published|distribute|distributed|market|marketed|power|powered|deliver|delivered|import|imported|present|presented|narrate|narrated|illustrate|illustrated|edit|edited|translate|translated|produce|produced)$/i;
+  const badBefore = /(sold|ship|ships|shipped|fulfil|fulfill|fulfilled|dispatch|dispatched|publish|published|distribute|distributed|market|marketed|power|powered|deliver|delivered|import|imported|present|presented|narrate|narrated|illustrate|illustrated|edit|edited|translate|translated|produce|produced|gone|goes|known)$/i;
   const re = /\bby[ \t]+([A-Z][A-Za-z'’.\-]*(?:[ \t]+[A-Z][A-Za-z'’.\-]*){1,2})/gi;
   let m;
   while ((m = re.exec(text))) {
