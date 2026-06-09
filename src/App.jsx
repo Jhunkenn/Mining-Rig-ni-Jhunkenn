@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 
 // ---- phone extraction + filtering rules ----
 function extractPhones(text) {
@@ -506,6 +506,11 @@ export default function App() {
   const [copied, setCopied] = useState("");
   const [theme, setTheme] = useState(0);
   const [stats, setStats] = useState({ leads: 0, fields: 0, ready: 0 });
+  const [compact, setCompact] = useState(false);
+  const [leftPct, setLeftPct] = useState(50); // input panel width %, session-only
+  const wsRef = useRef(null);
+  const dragRef = useRef(false);
+  const actionRef = useRef({});
 
   const rec = useMemo(() => parse(raw), [raw]);
   const built = useMemo(() => buildPhones(rec.phones), [rec.phones]);
@@ -550,6 +555,44 @@ export default function App() {
   };
 
   const vars = THEMES[theme].vars;
+
+  // keyboard shortcuts (non-colliding): Ctrl/Cmd+Enter = copy row, +Shift = copy column. Parsing is live,
+  // so there is no "parse" shortcut. actionRef keeps the latest handlers/flags to avoid stale closures.
+  actionRef.current = { copyRow, copyCol, hasData };
+  useEffect(() => {
+    const onKey = (e) => {
+      const mod = e.ctrlKey || e.metaKey;
+      if (!mod || e.key !== "Enter") return;
+      const a = actionRef.current;
+      if (!a.hasData) return;
+      e.preventDefault();
+      (e.shiftKey ? a.copyCol : a.copyRow)();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  // resizable input/output divider (desktop). Clamped 28–72%; session-only; stacks via CSS under 760px.
+  const startDrag = (e) => {
+    e.preventDefault();
+    dragRef.current = true;
+    document.body.style.userSelect = "none";
+    const move = (ev) => {
+      if (!dragRef.current || !wsRef.current) return;
+      const r = wsRef.current.getBoundingClientRect();
+      const pct = ((ev.clientX - r.left) / r.width) * 100;
+      setLeftPct(Math.max(28, Math.min(72, pct)));
+    };
+    const up = () => {
+      dragRef.current = false;
+      document.body.style.userSelect = "";
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
   const statCards = [
     { label: "Leads Processed", value: fmt(stats.leads), icon: "inbox" },
     { label: "Fields Extracted", value: fmt(stats.fields), icon: "check" },
@@ -601,6 +644,18 @@ export default function App() {
     .srcchip { font-family:'JetBrains Mono',monospace; font-size:10.5px; font-weight:600; padding:5px 10px; border-radius:99px; border:1px solid var(--note-line); color:var(--note-ink); background: color-mix(in srgb, var(--note-line) 18%, transparent); transition: transform .15s; }
     .srcchip:hover { transform: translateY(-1px); }
     .divline { flex:1; height:1px; background: var(--note-line); opacity:.6; margin-left:4px; }
+    .ws-divider { flex:0 0 auto; width:11px; align-self:stretch; cursor:col-resize; position:relative; touch-action:none; }
+    .ws-divider::before { content:""; position:absolute; top:6px; bottom:6px; left:4px; right:4px; border-radius:6px; background: var(--line); opacity:.55; transition: opacity .15s, background-color .15s; }
+    .ws-divider:hover::before, .ws-divider:active::before { opacity:1; background: var(--accent); }
+    .statpill { display:inline-flex; align-items:center; gap:7px; font-size:11.5px; font-weight:600; padding:6px 11px; border-radius:99px; border:1px solid var(--line); background:var(--field); color:var(--ink-soft); white-space:nowrap; }
+    .statpill.live { color:var(--ink); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+    .statdot { width:8px; height:8px; border-radius:50%; flex:0 0 auto; }
+    .kbdhint { font-size:10px; font-weight:600; color:var(--ink-soft); padding:5px 9px; border-radius:99px; border:1px dashed var(--line); background:transparent; cursor:default; user-select:none; }
+    @media (max-width: 760px) {
+      .ws { flex-direction: column; }
+      .ws .ws-pane { flex: 1 1 auto !important; width: 100%; }
+      .ws-divider { display: none; }
+    }
     @keyframes fadeUp { from { opacity:0; transform: translateY(10px); } to { opacity:1; transform:none; } }
     @keyframes fadeIn { from { opacity:0; } to { opacity:1; } }
     @keyframes drawCheck { from { stroke-dashoffset: 30; } to { stroke-dashoffset: 0; } }
@@ -615,14 +670,17 @@ export default function App() {
       <style>{css}</style>
 
       {/* header */}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 18, alignItems: "flex-start", justifyContent: "space-between", marginBottom: 18 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 14, alignItems: "flex-start", justifyContent: "space-between", marginBottom: compact ? 10 : 14 }}>
         <div style={{ minWidth: 0 }}>
           <div className="mono" style={{ fontSize: 10.5, letterSpacing: 2, color: "var(--accent)", fontWeight: 700, textTransform: "uppercase" }}>Lead Extraction Workbench</div>
-          <h1 style={{ margin: "5px 0 4px", fontSize: "clamp(24px,4vw,34px)", fontWeight: 800, letterSpacing: -1 }}><span style={{ color: "var(--accent)", marginRight: 6 }}>⛏</span>Jhunkenn's Mining Rig</h1>
-          <p style={{ margin: 0, fontSize: 13.5, color: "var(--ink-soft)" }}>Parse search results into structured lead data.</p>
+          <h1 style={{ margin: "2px 0 3px", fontSize: compact ? "clamp(20px,3vw,26px)" : "clamp(24px,4vw,34px)", fontWeight: 800, letterSpacing: -1 }}><span style={{ color: "var(--accent)", marginRight: 6 }}>⛏</span>Jhunkenn's Mining Rig</h1>
+          {!compact && <p style={{ margin: 0, fontSize: 13.5, color: "var(--ink-soft)" }}>Parse search results into structured lead data.</p>}
         </div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
           <span className="mono" style={{ fontSize: 10, fontWeight: 600, color: "var(--ink-soft)", padding: "5px 9px", borderRadius: 99, border: "1px solid var(--line)", background: "var(--field)" }}>v{VERSION}</span>
+          <button onClick={() => setCompact((c) => !c)} title="Compact mode — hide stats and tighten spacing for more workspace" className="swatch" style={{ background: compact ? "var(--ink)" : "var(--field)", color: compact ? "var(--bone)" : "var(--ink)", border: `1px solid ${compact ? "var(--ink)" : "var(--line)"}` }}>
+            <Icon name="cols" size={13} />Compact
+          </button>
           {THEMES.map((t, i) => {
             const active = theme === i;
             return (
@@ -638,22 +696,24 @@ export default function App() {
       </div>
 
       {/* session statistics */}
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 24 }}>
-        {statCards.map((s) => (
-          <div key={s.label} className="stat">
-            <span className="stat-ico"><Icon name={s.icon} size={16} /></span>
-            <div>
-              <div className="lbl" style={{ color: "var(--ink-soft)" }}>{s.label}</div>
-              <div className="mono" style={{ fontSize: 18, fontWeight: 700, marginTop: 1 }}>{s.value}</div>
+      {!compact && (
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 18 }}>
+          {statCards.map((s) => (
+            <div key={s.label} className="stat">
+              <span className="stat-ico"><Icon name={s.icon} size={16} /></span>
+              <div>
+                <div className="lbl" style={{ color: "var(--ink-soft)" }}>{s.label}</div>
+                <div className="mono" style={{ fontSize: 20, fontWeight: 800, marginTop: 1 }}>{s.value}</div>
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
       {/* workspace */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(320px,1fr))", gap: 24, alignItems: "start" }}>
+      <div ref={wsRef} className="ws" style={{ display: "flex", alignItems: "flex-start", gap: compact ? 12 : 18 }}>
         {/* input */}
-        <div style={{ minWidth: 0 }}>
+        <div className="ws-pane" style={{ flex: `0 0 ${leftPct}%`, minWidth: 0 }}>
           <div className="lbl" style={{ color: "var(--ink-soft)", marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <span>Paste Search Results</span>
             <span style={{ opacity: .65 }}>{raw ? raw.length.toLocaleString() + " chars" : ""}</span>
@@ -663,8 +723,10 @@ export default function App() {
             style={{ width: "100%", fontSize: 13, padding: 15, border: "1px solid var(--line)", borderRadius: 12, background: "var(--field)", color: "var(--ink)", resize: "vertical", lineHeight: 1.55 }} />
         </div>
 
+        <div className="ws-divider" onPointerDown={startDrag} title="Drag to resize panels" />
+
         {/* output */}
-        <div style={{ minWidth: 0 }}>
+        <div className="ws-pane" style={{ flex: "1 1 0", minWidth: 0 }}>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", marginBottom: 16 }}>
             <button className={"btn pri" + (copied === "row" ? " pop" : "")} style={{ fontSize: 12.5, padding: "10px 16px", borderRadius: 10 }} onClick={copyRow} disabled={!hasData}>
               <Icon name={copied === "row" ? "check" : "rows"} size={15} />{copied === "row" ? "Copied" : "Copy row"}
@@ -672,6 +734,14 @@ export default function App() {
             <button className={"btn gho" + (copied === "col" ? " pop" : "")} style={{ fontSize: 12.5, padding: "10px 16px", borderRadius: 10 }} onClick={copyCol} disabled={!hasData}>
               <Icon name={copied === "col" ? "check" : "cols"} size={15} />{copied === "col" ? "Copied" : "Copy column"}
             </button>
+            <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+              <span className="kbdhint" title="Ctrl/Cmd + Enter → Copy row     Ctrl/Cmd + Shift + Enter → Copy column">⌨ Shortcuts</span>
+              <span className={"statpill" + (hasData ? " live" : "")}>
+                {hasData
+                  ? <><span style={{ color: "var(--accent)", display: "inline-flex" }}><Icon name="check" size={12} /></span>{source || "Lead parsed"}</>
+                  : <><span className="statdot" style={{ background: "#1faa6b" }} />Ready for Extraction</>}
+              </span>
+            </div>
           </div>
 
           <div className="sheet-wrap">
@@ -684,16 +754,11 @@ export default function App() {
                     <div className="avatar">{initials}</div>
                     <div style={{ minWidth: 0, flex: 1 }}>
                       <div style={{ fontSize: 22, fontWeight: 800, color: "var(--note-ink)", lineHeight: 1.12, letterSpacing: -.3, wordBreak: "break-word" }}>{fullName || "Unnamed Lead"}</div>
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", marginTop: 7 }}>
+                      <div style={{ marginTop: 7 }}>
                         <div key={populated} className="chip fin" style={{ color: "var(--note-link)", background: "color-mix(in srgb, var(--note-link) 14%, transparent)" }}>
                           <Icon name="check" size={12} className="ck" />
                           {completeness >= 70 ? `Lead Ready · ${populated} fields` : `${populated} field${populated === 1 ? "" : "s"} extracted`}
                         </div>
-                        {source && (
-                          <div className="chip fin" style={{ fontWeight: 600, color: "var(--note-label)", background: "color-mix(in srgb, var(--note-line) 22%, transparent)" }}>
-                            <Icon name="check" size={11} /> {source}
-                          </div>
-                        )}
                       </div>
                     </div>
                   </div>
