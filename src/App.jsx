@@ -6,13 +6,16 @@ function extractPhones(text) {
   const strict = /(?<!\d)(?:\+?1[\s.\-]?)?(?:\(\d{3}\)[\s.\-]*|\d{3}[\s.\-])\d{3}[\s.\-]\d{4}(?!\d)/g;
   // loose: only used on lines that clearly mention a phone
   const loose = /(?<!\d)(?:\+?1[\s.\-]?)?\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}(?!\d)/g;
+  // E.164: a literal "+" then 10–15 digits (e.g. +14044734789). The required leading "+" keeps bare
+  // digit runs (ISBN/ASIN/etc.) from matching; the existing 10-digit check below filters anything longer.
+  const e164 = /(?<!\d)\+\d{10,15}(?!\d)/g;
   const lines = text.split(/\r?\n/);
   const seen = new Set(), out = [];
   for (let li = 0; li < lines.length; li++) {
     const line = lines[li];
     if (/\b(isbn|asin|upc|ean|sku)\b/i.test(line)) continue; // ignore product identifiers
     const re = /\b(phone|tel|mobile|cell|fax|call)\b/i.test(line) ? loose : strict;
-    for (const m of line.match(re) || []) {
+    for (const m of [...(line.match(re) || []), ...(line.match(e164) || [])]) {
       let d = m.replace(/\D/g, "");
       if (d.length === 11 && d[0] === "1") d = d.slice(1);
       if (d.length !== 10 || seen.has(d)) continue; // dedupe by 10-digit number
@@ -163,12 +166,17 @@ function pickEmail(lines) {
       if (i < 4) score += 5;               // lead data tends to sit near the top (weak signal)
       if (ROLE_LOCAL.test(local)) score -= 25; // generic role account, deprioritize
       if (nearLegal) score -= 50;          // footer / ToS / privacy context
-      cands.push({ e, score });
+      cands.push({ e, score, personal: !ROLE_LOCAL.test(local) && !nearLegal });
     }
   }
   if (!cands.length) return "";
   cands.sort((a, b) => b.score - a.score);
-  return cands[0].score >= 20 ? cands[0].e : ""; // below threshold -> blank, never guess
+  if (cands[0].score >= 20) return cands[0].e; // existing confidence threshold (unchanged)
+  // Minimal survival path: a clearly valid standalone personal address — one that passed every rejection
+  // filter, is not a role account, and is not in a legal/footer context — is returned even without
+  // corroborating context. Does not lower the threshold or alter any score.
+  const standalone = cands.find((c) => c.personal);
+  return standalone ? standalone.e : ""; // otherwise blank, never guess
 }
 
 // Splits a full name into First (given + middle, plus any leading title like "Dr.") and
