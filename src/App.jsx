@@ -110,8 +110,18 @@ function pickBookTitle(lines) {
     if ((m = l.match(/^(?:book|title)\s*[:：]\s*(.+)/i))) push(m[1], 90);
     else if (/^(?:book|title)\s*$/i.test(l)) push(lines[i + 1], 80);
     // the title usually sits just above a "by Author" / "(Author)" byline
-    if (/\(\s*authors?\s*\)/i.test(l) || /^[Bb]y[ \t]+[A-Z]/.test(l) || /^[Bb]y\[[A-Z]/.test(l) || (/^[Bb]y$/.test(l) && /^[A-Z]/.test(lines[i + 1] || ""))) {
-      for (let j = i - 1; j >= 0 && j >= i - 3; j--) { if (lines[j] && !isJunk(lines[j])) { push(lines[j], 75); break; } }
+    {
+      const luluByline = /^[Bb]y\[[A-Z]/.test(l) || (/^[Bb]y$/.test(l) && /^[A-Z]/.test(lines[i + 1] || ""));
+      if (/\(\s*authors?\s*\)/i.test(l) || /^[Bb]y[ \t]+[A-Z]/.test(l) || luluByline) {
+        if (luluByline) {
+          // Lulu splits a title across multiple lines above the byline: collect the run of non-junk lines (deduped), join
+          const parts = [];
+          for (let j = i - 1; j >= 0 && j >= i - 3; j--) { if (!lines[j] || isJunk(lines[j])) break; if (!parts.includes(lines[j])) parts.unshift(lines[j]); }
+          if (parts.length) push(parts.join(" "), 75);
+        } else {
+          for (let j = i - 1; j >= 0 && j >= i - 3; j--) { if (lines[j] && !isJunk(lines[j])) { push(lines[j], 75); break; } }
+        }
+      }
     }
     // Amazon / Barnes & Noble URLs are strong signals that book info exists
     const um = l.match(/https?:\/\/[^\s)]+/);
