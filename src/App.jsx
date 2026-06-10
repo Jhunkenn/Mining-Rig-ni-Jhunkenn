@@ -668,9 +668,9 @@ export default function App() {
   };
 
   const statCards = [
-    { label: "Leads Processed", value: fmt(stats.leads), icon: "inbox" },
-    { label: "Fields Extracted", value: fmt(stats.fields), icon: "check" },
-    { label: "Success Rate", value: successRate == null ? "—" : successRate + "%", icon: "spark" },
+    { label: "Records Processed", value: fmt(stats.leads), icon: "inbox" },
+    { label: "Data Points Found", value: fmt(stats.fields), icon: "check" },
+    { label: "Profile Completeness", value: successRate == null ? "—" : successRate + "%", icon: "spark" },
   ];
 
   const css = `
@@ -695,9 +695,10 @@ export default function App() {
     .swatch:hover { transform: translateY(-1px); }
     .dot { width:13px; height:13px; border-radius:50%; transition: transform .2s; }
     .swatch:hover .dot { transform: scale(1.18); }
-    .stat { background: var(--field); border:1px solid var(--line); border-radius:12px; padding:9px 15px; display:flex; align-items:center; gap:11px; min-width:128px; flex:0 1 auto; transition: transform .2s, box-shadow .2s, border-color .2s, background-color .45s ease; }
+    .stat { background: var(--field); border:1px solid var(--line); border-radius:12px; padding:8px 13px; display:flex; align-items:center; gap:9px; min-width:112px; flex:0 1 auto; transition: transform .2s, box-shadow .2s, border-color .2s, background-color .45s ease; }
     .stat:hover { transform: translateY(-2px); box-shadow: 0 12px 24px -16px rgba(0,0,0,.45); }
-    .stat-ico { width:30px; height:30px; border-radius:8px; display:flex; align-items:center; justify-content:center; color: var(--accent); background: var(--focus); flex-shrink:0; }
+    .stat-ico { width:26px; height:26px; border-radius:8px; display:flex; align-items:center; justify-content:center; color: var(--accent); background: var(--focus); flex-shrink:0; }
+    .stat .lbl { font-size: 9px; }
     .sheet-wrap { position: relative; transition: transform .25s ease; }
     .sheet-wrap::before, .sheet-wrap::after { content:''; position:absolute; inset:0; border-radius:7px; background: var(--note); box-shadow: 0 12px 26px -14px rgba(20,16,4,.4); transition: background-color .45s ease; }
     .sheet-wrap::before { transform: rotate(-1.5deg) translate(-6px,4px); opacity:.5; }
