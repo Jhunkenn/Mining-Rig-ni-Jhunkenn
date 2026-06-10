@@ -67,12 +67,15 @@ function authorName(text) {
   if (tagged && personOK(tagged[1], 1)) return clean(tagged[1]);
   // 2) "by NAME" — but not "sold by", "shipped by", "published by", etc.
   const badBefore = /(sold|ship|ships|shipped|fulfil|fulfill|fulfilled|dispatch|dispatched|publish|published|distribute|distributed|market|marketed|power|powered|deliver|delivered|import|imported|present|presented|narrate|narrated|illustrate|illustrated|edit|edited|translate|translated|produce|produced|gone|goes|known)$/i;
+  // skip promotional/navigation phrases that happen to follow "by" (e.g. "Delivery by Father's Day") and keep scanning for a real byline
+  const navReject = /\b(day|sale|deal|promotion|customer|service|guidelines|categories|best sellers|new releases|gift cards)\b/i;
   const re = /\bby[ \t]+([A-Z][A-Za-z'’.\-]*(?:[ \t]+[A-Z][A-Za-z'’.\-]*){1,2})/gi;
   let m;
   while ((m = re.exec(text))) {
     const before = text.slice(Math.max(0, m.index - 24), m.index);
     const lastWord = (before.match(/([A-Za-z]+)[\s:>\-]*$/) || [, ""])[1];
     if (badBefore.test(lastWord)) continue;
+    if (navReject.test(m[1])) continue;
     if (personOK(m[1], 2)) return clean(m[1]);
   }
   return "";
@@ -104,7 +107,7 @@ function pickBookTitle(lines) {
     if ((m = l.match(/^(?:book|title)\s*[:：]\s*(.+)/i))) push(m[1], 90);
     else if (/^(?:book|title)\s*$/i.test(l)) push(lines[i + 1], 80);
     // the title usually sits just above a "by Author" / "(Author)" byline
-    if (/\(\s*authors?\s*\)/i.test(l) || /^by[ \t]+[A-Z]/.test(l)) {
+    if (/\(\s*authors?\s*\)/i.test(l) || /^by[ \t]+[A-Z]/i.test(l)) {
       for (let j = i - 1; j >= 0 && j >= i - 3; j--) { if (lines[j] && !isJunk(lines[j])) { push(lines[j], 75); break; } }
     }
     // Amazon / Barnes & Noble URLs are strong signals that book info exists
@@ -227,9 +230,12 @@ function parse(text, meta = {}) {
   const email = pickEmail(lines);
 
   const urls = T.match(/https?:\/\/[^\s)]+/g) || [];
+  // Known book-retailer / storefront hosts that should fill the retail ("Amazon Sites") slot alongside Amazon.
+  // Host-anchored ([./] before the brand, "." after) so brands can't match inside unrelated hostnames (e.g. "lulu" in "honolulu.com").
+  const BOOK_RETAIL = /[\/.](?:goodreads|barnesandnoble|kobo|books\.apple|bookshop|booksamillion|audible|thriftbooks|abebooks|powells|waterstones|blackwells|lulu|ingramspark|smashwords|books2read|bookbaby|blurb|ebooks|indigo|indiebound)\./i;
   const linkedin = urls.find((u) => /linkedin\.com/i.test(u)) || "";
-  const amazon = urls.find((u) => /amazon\./i.test(u)) || urls.find((u) => /(goodreads|barnesandnoble)/i.test(u)) || "";
-  const website = urls.find((u) => !/linkedin\.com|amazon\.|goodreads|barnesandnoble/i.test(u)) || "";
+  const amazon = urls.find((u) => /amazon\./i.test(u)) || urls.find((u) => BOOK_RETAIL.test(u)) || "";
+  const website = urls.find((u) => !/linkedin\.com|amazon\./i.test(u) && !BOOK_RETAIL.test(u)) || "";
 
   // Property Value — Property Value / Estimated Value / Estimated Equity, whichever appears first
   const valLabel = /(property\s*value|estimated\s*value|estimated\s*equity)/i;
@@ -265,6 +271,8 @@ function parse(text, meta = {}) {
   let imprint = labeled(/^(imprint|publisher|publishing|published\s*by|published)\b/i);
   imprint = imprint.replace(/\s*\([^)]*\b(?:19|20)\d{2}\b[^)]*\)\s*$/, "").trim();
   if (!imprint) imprint = find(/independently published/i);
+  // reject navigation/promotional labels mistaken for a publisher/imprint (prefer blank over wrong)
+  if (/\bguidelines\b|\bcustomer\s+service\b|\bbest\s+sellers\b|\bnew\s+releases\b|\bgift\s+cards\b|\bfather'?s\s+day\b/i.test(imprint) || /^(home|books|categories|sale|deal|promotion|new releases|best sellers)$/i.test(imprint.trim())) imprint = "";
 
   const zip = /\b\d{5}(-\d{4})?\b/;
   const streetWords = /\b(st|street|ave|avenue|dr|drive|rd|road|ln|lane|blvd|boulevard|ct|court|way|pl|place|cir|circle|ter|terrace|hwy|highway|pkwy|parkway|trl|trail|loop|sq|square|run|pike|row|apt|unit|ste|suite|box)\b/i;
@@ -330,7 +338,7 @@ function parse(text, meta = {}) {
   // final safety: never return bare navigation/placeholder text as the address itself
   if (/^(lookup|get\s*directions|directions|map|view\s*map)$/i.test(address.trim()) || addrReject.test(address)) address = "";
 
-  const DISQUALIFY = /\b(fair credit|skip to (?:the )?main content|join prime)\b/i;
+  const DISQUALIFY = /\b(fair credit|skip to (?:the )?main content|join prime|day|sale|deal|promotion|customer|service|books|categories|guidelines|home|best sellers|new releases|gift cards)\b/i;
   const nameL = find(/^name\s*:/i);
   let name = nameL ? after(nameL) : "";
   if (!name) name = authorName(T);
@@ -536,6 +544,24 @@ function cleanUrl(input) {
   return { kind: "generic", original, clean: u.toString().replace(/\?$/, ""), warning: "" };
 }
 
+// ---- Date Published display normalization (post-extraction only; extraction logic unchanged) ----
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+function normalizeDate(v) {
+  const s = (v || "").trim();
+  if (!s) return s;
+  let mo = null, yr = null, m;
+  if ((m = s.match(/^(\d{1,2})[\/.](\d{1,2})[\/.](\d{4})$/))) { mo = +m[1]; yr = +m[3]; }            // M/D/YYYY (US)
+  else if ((m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/))) { yr = +m[1]; mo = +m[2]; }               // YYYY-MM-DD
+  else {
+    const mn = s.match(/\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b/i);
+    const yn = s.match(/\b(\d{4})\b/);
+    if (mn) { const i = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"].indexOf(mn[1].slice(0, 3).toLowerCase()); if (i >= 0) mo = i + 1; }
+    if (yn) yr = +yn[1];
+  }
+  if (yr && yr >= 1000 && yr <= 9999) return mo && mo >= 1 && mo <= 12 ? `${MONTHS[mo - 1]} ${yr}` : String(yr);
+  return s; // cannot confidently parse → leave original unchanged
+}
+
 export default function App() {
   const [raw, setRaw] = useState("");
   const [copied, setCopied] = useState("");
@@ -562,6 +588,7 @@ export default function App() {
     if (slot.key === "phone") return built[0]?.display || "";
     if (slot.key === "otherPhone") return built.slice(1).map((n) => n.display).join(", ");
     if (slot.key === "amazon") return cleanAmazon(rec.amazon);
+    if (slot.key === "datePublished") return normalizeDate(rec.datePublished);
     return rec[slot.key] || "";
   };
   const cells = useMemo(() => SLOTS.map(valueOf), [rec, built]);
@@ -571,6 +598,7 @@ export default function App() {
     if (key === "phone") return built[0]?.display || "";
     if (key === "otherPhone") return built.slice(1).map((n) => n.display).join(", ");
     if (key === "amazon") return cleanAmazon(rec.amazon);
+    if (key === "datePublished") return normalizeDate(rec.datePublished);
     return rec[key] || "";
   };
 
