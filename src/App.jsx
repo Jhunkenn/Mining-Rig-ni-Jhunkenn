@@ -683,9 +683,9 @@ export default function App() {
   };
 
   const statCards = [
-    { label: "Records Processed", value: fmt(stats.leads), icon: "inbox" },
-    { label: "Data Points Found", value: fmt(stats.fields), icon: "check" },
-    { label: "Profile Completeness", value: successRate == null ? "—" : successRate + "%", icon: "spark" },
+    { label: "Records", value: fmt(stats.leads), icon: "inbox" },
+    { label: "Fields Found", value: fmt(stats.fields), icon: "check" },
+    { label: "Extracted", value: successRate == null ? "—" : successRate + "%", icon: "spark" },
   ];
 
   const css = `
@@ -718,7 +718,7 @@ export default function App() {
     .sheet-wrap::before, .sheet-wrap::after { content:''; position:absolute; inset:0; border-radius:7px; background: var(--note); box-shadow: 0 12px 26px -14px rgba(20,16,4,.4); transition: background-color .45s ease; }
     .sheet-wrap::before { transform: rotate(-1.5deg) translate(-6px,4px); opacity:.5; }
     .sheet-wrap::after { transform: rotate(1.1deg) translate(6px,6px); opacity:.32; }
-    .sheet { position: relative; z-index:1; background: var(--note); border-radius:7px; padding: 30px 24px 22px; overflow:hidden; box-shadow: 0 1px 0 rgba(255,255,255,.45) inset, 0 26px 54px -18px rgba(20,16,4,.6), 0 6px 14px rgba(20,16,4,.2); transition: transform .25s ease, box-shadow .25s ease, background-color .45s ease; }
+    .sheet { position: relative; z-index:1; background: var(--note); border-radius:7px; padding: 24px 20px 18px; overflow:hidden; box-shadow: 0 1px 0 rgba(255,255,255,.45) inset, 0 26px 54px -18px rgba(20,16,4,.6), 0 6px 14px rgba(20,16,4,.2); transition: transform .25s ease, box-shadow .25s ease, background-color .45s ease; }
     .sheet::before { content:''; position:absolute; inset:0; pointer-events:none; opacity:.05; mix-blend-mode:multiply; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
     .sheet-wrap:hover { transform: translateY(-3px); }
     .sheet-wrap:hover .sheet { box-shadow: 0 1px 0 rgba(255,255,255,.6) inset, 0 36px 64px -18px rgba(20,16,4,.62), 0 8px 18px rgba(20,16,4,.24); }
@@ -727,7 +727,7 @@ export default function App() {
     .avatar { width:46px; height:46px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:16px; color:#fff; background: linear-gradient(135deg, var(--accent), var(--accent-deep)); box-shadow: 0 5px 14px -5px var(--focus); flex-shrink:0; }
     .pbar { height:8px; border-radius:99px; background: color-mix(in srgb, var(--note-line) 55%, transparent); overflow:hidden; }
     .pfill { height:100%; border-radius:99px; background: linear-gradient(90deg, var(--note-link), var(--accent)); transition: width .55s cubic-bezier(.4,0,.2,1); }
-    .frow { display:flex; align-items:flex-start; gap:10px; padding:7px 8px; border-radius:8px; transition: background .15s; }
+    .frow { display:flex; align-items:flex-start; gap:8px; padding:6px 8px; border-radius:8px; transition: background .15s; }
     .frow:hover { background: color-mix(in srgb, var(--note-line) 26%, transparent); }
     .fico { color: var(--note-label); margin-top:1px; }
     .chip { display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:99px; font-size:11px; font-weight:700; }
@@ -865,7 +865,7 @@ export default function App() {
               {hasData ? (
                 <>
                   {/* name header + status */}
-                  <div style={{ display: "flex", alignItems: "center", gap: 13, marginBottom: 18 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 13, marginBottom: 15 }}>
                     <div className="avatar">{initials}</div>
                     <div style={{ minWidth: 0, flex: 1 }}>
                       <div style={{ fontSize: 22, fontWeight: 800, color: "var(--note-ink)", lineHeight: 1.12, letterSpacing: -.3, wordBreak: "break-word" }}>{fullName || "Unnamed Lead"}</div>
@@ -879,8 +879,8 @@ export default function App() {
                   </div>
 
                   {/* lead quality */}
-                  <div style={{ marginBottom: 22 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
+                  <div style={{ marginBottom: 18 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 5 }}>
                       <span className="lbl" style={{ color: "var(--note-label)" }}>Extraction Coverage</span>
                       <span className="mono" style={{ fontSize: 12, fontWeight: 700, color: "var(--note-ink)" }}>{completeness}% · {tier}</span>
                     </div>
@@ -889,8 +889,8 @@ export default function App() {
 
                   {/* grouped sections */}
                   {SECTIONS.map((sec) => (
-                    <div key={sec.title} style={{ marginBottom: 16 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+                    <div key={sec.title} style={{ marginBottom: 13 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
                         <span style={{ color: "var(--note-label)" }}><Icon name={sec.icon} size={13} /></span>
                         <span className="lbl" style={{ color: "var(--note-label)" }}>{sec.title}</span>
                         <span className="divline" />
@@ -919,7 +919,7 @@ export default function App() {
                     </div>
                   ))}
 
-                  <div className="mono" style={{ fontSize: 10, color: "var(--note-muted)", marginTop: 8, paddingTop: 12, borderTop: "1px dashed var(--note-line)", lineHeight: 1.6 }}>
+                  <div className="mono" style={{ fontSize: 10, color: "var(--note-muted)", marginTop: 6, paddingTop: 10, borderTop: "1px dashed var(--note-line)", lineHeight: 1.6 }}>
                     Copy row → fills across · Copy column → fills down · 16 cells, blanks preserved
                   </div>
                 </>
