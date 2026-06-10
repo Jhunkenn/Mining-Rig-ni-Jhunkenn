@@ -605,7 +605,7 @@ export default function App() {
   const populated = FIELDS.filter((k) => fieldVal(k)).length;
   const completeness = Math.round((populated / FIELDS.length) * 100);
   const hasData = populated > 0;
-  const tier = completeness >= 90 ? "Complete" : completeness >= 70 ? "Detailed" : completeness >= 40 ? "Moderate" : "Limited";
+  const tier = completeness >= 90 ? "Comprehensive" : completeness >= 70 ? "Detailed" : completeness >= 40 ? "Moderate" : "Limited";
   const fullName = [rec.firstName, rec.lastName].filter(Boolean).join(" ").trim();
   const initials = ((rec.firstName?.[0] || "") + (rec.lastName?.[0] || "")).toUpperCase() || "—";
   const fmt = (n) => n.toLocaleString();
