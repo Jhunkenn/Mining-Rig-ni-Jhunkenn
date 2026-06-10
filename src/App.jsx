@@ -605,7 +605,7 @@ export default function App() {
   const populated = FIELDS.filter((k) => fieldVal(k)).length;
   const completeness = Math.round((populated / FIELDS.length) * 100);
   const hasData = populated > 0;
-  const tier = completeness >= 90 ? "Complete" : completeness >= 70 ? "Strong" : completeness >= 40 ? "Good" : "Sparse";
+  const tier = completeness >= 90 ? "Complete" : completeness >= 70 ? "Detailed" : completeness >= 40 ? "Moderate" : "Limited";
   const fullName = [rec.firstName, rec.lastName].filter(Boolean).join(" ").trim();
   const initials = ((rec.firstName?.[0] || "") + (rec.lastName?.[0] || "")).toUpperCase() || "—";
   const fmt = (n) => n.toLocaleString();
@@ -867,7 +867,7 @@ export default function App() {
                   {/* lead quality */}
                   <div style={{ marginBottom: 22 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
-                      <span className="lbl" style={{ color: "var(--note-label)" }}>Lead Quality</span>
+                      <span className="lbl" style={{ color: "var(--note-label)" }}>Extraction Coverage</span>
                       <span className="mono" style={{ fontSize: 12, fontWeight: 700, color: "var(--note-ink)" }}>{completeness}% · {tier}</span>
                     </div>
                     <div className="pbar"><div className="pfill" style={{ width: completeness + "%" }} /></div>
