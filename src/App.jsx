@@ -9,6 +9,8 @@ function extractPhones(text) {
   // E.164: a literal "+" then 10–15 digits (e.g. +14044734789). The required leading "+" keeps bare
   // digit runs (ISBN/ASIN/etc.) from matching; the existing 10-digit check below filters anything longer.
   const e164 = /(?<!\d)\+\d{10,15}(?!\d)/g;
+  // numbers explicitly flagged inactive in nearby text are dropped (text-only; no validation/lookups)
+  const dead = /\b(disconnected|inactive|invalid|no longer in service|not in service|retired number|dead number|disconnected line)\b/i;
   const lines = text.split(/\r?\n/);
   const seen = new Set(), out = [];
   for (let li = 0; li < lines.length; li++) {
@@ -24,6 +26,7 @@ function extractPhones(text) {
       const nextL = lines[li + 1] || "";
       const nextHasPhone = /(?<!\d)\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}(?!\d)/.test(nextL);
       const ctx = (line + (nextHasPhone ? "" : " " + nextL)).toLowerCase();
+      if (dead.test(ctx)) continue; // drop numbers explicitly marked inactive/disconnected nearby
       let type = "Unknown";
       if (/\b(wireless|mobile|cell|cellular)\b/.test(ctx)) type = "Mobile";
       else if (/\b(landline|land\s*line|home|residential|wire\s?line|wired)\b/.test(ctx)) type = "Landline";
