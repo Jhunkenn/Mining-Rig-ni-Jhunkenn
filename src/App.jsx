@@ -64,7 +64,10 @@ function authorName(text) {
   const personOK = (s, min) => { const w = clean(s).split(/\s+/); return w.length >= min && w.length <= 3 && !company.test(s); };
   // 1) strongest signal: a name immediately before "(Author)"
   const tagged = text.match(/([A-Z][A-Za-z'’.\-]*(?:[ \t]+[A-Z][A-Za-z'’.\-]*){0,2})[ \t]*\(\s*authors?\s*\)/i);
-  if (tagged && personOK(tagged[1], 1)) return clean(tagged[1]);
+  if (tagged && !/^by$/i.test(clean(tagged[1])) && personOK(tagged[1], 1)) return clean(tagged[1]);
+  // Lulu contributor format: "By (author): Name" — the name follows the "(author):" label
+  const afterParen = text.match(/\(\s*authors?\s*\)\s*[:：]\s*([A-Z][A-Za-z'’.\-]*(?:[ \t]+[A-Z][A-Za-z'’.\-]*){0,2})/i);
+  if (afterParen && personOK(afterParen[1], 1)) return clean(afterParen[1]);
   // 2) "by NAME" — but not "sold by", "shipped by", "published by", etc.
   const badBefore = /(sold|ship|ships|shipped|fulfil|fulfill|fulfilled|dispatch|dispatched|publish|published|distribute|distributed|market|marketed|power|powered|deliver|delivered|import|imported|present|presented|narrate|narrated|illustrate|illustrated|edit|edited|translate|translated|produce|produced|gone|goes|known)$/i;
   // skip promotional/navigation phrases that happen to follow "by" (e.g. "Delivery by Father's Day") and keep scanning for a real byline
@@ -107,7 +110,7 @@ function pickBookTitle(lines) {
     if ((m = l.match(/^(?:book|title)\s*[:：]\s*(.+)/i))) push(m[1], 90);
     else if (/^(?:book|title)\s*$/i.test(l)) push(lines[i + 1], 80);
     // the title usually sits just above a "by Author" / "(Author)" byline
-    if (/\(\s*authors?\s*\)/i.test(l) || /^by[ \t]+[A-Z]/i.test(l)) {
+    if (/\(\s*authors?\s*\)/i.test(l) || /^[Bb]y[ \t]+[A-Z]/.test(l) || /^[Bb]y\[[A-Z]/.test(l) || (/^[Bb]y$/.test(l) && /^[A-Z]/.test(lines[i + 1] || ""))) {
       for (let j = i - 1; j >= 0 && j >= i - 3; j--) { if (lines[j] && !isJunk(lines[j])) { push(lines[j], 75); break; } }
     }
     // Amazon / Barnes & Noble URLs are strong signals that book info exists
@@ -266,9 +269,11 @@ function parse(text, meta = {}) {
 
   // Book Title — confidence-scored across explicit labels, byline position, and Amazon/B&N URL signals
   let bookTitle = pickBookTitle(lines);
+  // strip a known retail format marker only when it is the exact trailing parenthetical (leaves series/edition/subtitle text intact)
+  bookTitle = bookTitle.replace(/\s*\((?:hardback|paperback|hardcover|ebook|kindle edition|audiobook|audio cd|mass market paperback)\)\s*$/i, "").trim();
 
   // Imprint / Publisher / Published by / Publishing — strip any trailing "(date)" so it stays just the imprint
-  let imprint = labeled(/^(imprint|publisher|publishing|published\s*by|published)\b/i);
+  let imprint = labeled(/^(imprint|publisher|publishing|published\s*by)\b/i, true);
   imprint = imprint.replace(/\s*\([^)]*\b(?:19|20)\d{2}\b[^)]*\)\s*$/, "").trim();
   if (!imprint) imprint = find(/independently published/i);
   // reject navigation/promotional labels mistaken for a publisher/imprint (prefer blank over wrong)
