@@ -795,18 +795,6 @@ export default function App() {
       <div ref={wsRef} className="ws" style={{ display: "flex", alignItems: "flex-start", gap: 18 }}>
         {/* input */}
         <div className="ws-pane" style={{ flex: `0 0 ${leftPct}%`, minWidth: 0 }}>
-          {/* session statistics */}
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 18 }}>
-            {statCards.map((s) => (
-              <div key={s.label} className="stat">
-                <span className="stat-ico"><Icon name={s.icon} size={16} /></span>
-                <div>
-                  <div className="lbl" style={{ color: "var(--ink-soft)" }}>{s.label}</div>
-                  <div className="mono" style={{ fontSize: 20, fontWeight: 800, marginTop: 1 }}>{s.value}</div>
-                </div>
-              </div>
-            ))}
-          </div>
           <div className="lbl" style={{ color: "var(--ink-soft)", marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <span>Paste Search Results</span>
             <span style={{ opacity: .65 }}>{raw ? raw.length.toLocaleString() + " chars" : ""}</span>
