@@ -957,6 +957,18 @@ export default function App() {
               )}
             </div>
           </div>
+          {hasData && (
+            <div style={{ position: "sticky", bottom: 12, zIndex: 5, display: "flex", justifyContent: "flex-end", marginTop: 14, pointerEvents: "none" }}>
+              <div style={{ display: "flex", gap: 8, padding: 7, borderRadius: 12, background: "var(--paper)", border: "1px solid var(--line)", boxShadow: "0 10px 28px -10px rgba(0,0,0,.35)", pointerEvents: "auto" }}>
+                <button className={"btn pri" + (copied === "row" ? " pop" : "")} style={{ fontSize: 12, padding: "8px 14px", borderRadius: 9 }} onClick={copyRow} disabled={!hasData}>
+                  <Icon name={copied === "row" ? "check" : "rows"} size={14} />{copied === "row" ? "Copied" : "Copy row"}
+                </button>
+                <button className={"btn gho" + (copied === "col" ? " pop" : "")} style={{ fontSize: 12, padding: "8px 14px", borderRadius: 9 }} onClick={copyCol} disabled={!hasData}>
+                  <Icon name={copied === "col" ? "check" : "cols"} size={14} />{copied === "col" ? "Copied" : "Copy column"}
+                </button>
+              </div>
+            </div>
+          )}
           </>)}
         </div>
       </div>
