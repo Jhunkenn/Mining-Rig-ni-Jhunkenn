@@ -61,18 +61,18 @@ function buildPhones(nums) {
 function authorName(text) {
   const company = /\b(llc|inc|ltd|co|corp|press|publishing|publications|publisher|books|media|group|house|company|imprint|amazon|services|kdp|ingram|llp|gmbh|sons|associates|enterprises|distribution|store)\b/i;
   const clean = (s) => s.replace(/^by\s+/i, "").replace(/\s+/g, " ").trim();
-  const personOK = (s, min) => { const w = clean(s).split(/\s+/); return w.length >= min && w.length <= 3 && !company.test(s); };
+  const personOK = (s, min) => { const w = clean(s).replace(/[ \t]+(?:Jr|Sr|II|III|IV|PhD|MD|DDS|Esq)\.?$/i, "").split(/\s+/); return w.length >= min && w.length <= 3 && !company.test(s); };
   // 1) strongest signal: a name immediately before "(Author)"
-  const tagged = text.match(/([A-Z][A-Za-z'’.\-]*(?:[ \t]+[A-Z][A-Za-z'’.\-]*){0,2})[ \t]*\(\s*authors?\s*\)/i);
+  const tagged = text.match(/(["“]?[A-ZÀ-ÖØ-öø-ÿĀ-ſ][A-Za-zÀ-ÖØ-öø-ÿĀ-ſ'’"“”.\-]*(?:[ \t]+["“]?[A-ZÀ-ÖØ-öø-ÿĀ-ſ][A-Za-zÀ-ÖØ-öø-ÿĀ-ſ'’"“”.\-]*){0,2}(?:[ \t]+(?:Jr|Sr|II|III|IV|PhD|MD|DDS|Esq)\.?)?)[ \t]*\(\s*authors?\s*\)/i);
   if (tagged && !/^by$/i.test(clean(tagged[1])) && personOK(tagged[1], 1)) return clean(tagged[1]);
   // Lulu contributor format: "By (author): Name" — the name follows the "(author):" label
-  const afterParen = text.match(/\(\s*authors?\s*\)\s*[:：]\s*([A-Z][A-Za-z'’.\-]*(?:[ \t]+[A-Z][A-Za-z'’.\-]*){0,2})/i);
+  const afterParen = text.match(/\(\s*authors?\s*\)\s*[:：]\s*(["“]?[A-ZÀ-ÖØ-öø-ÿĀ-ſ][A-Za-zÀ-ÖØ-öø-ÿĀ-ſ'’"“”.\-]*(?:[ \t]+["“]?[A-ZÀ-ÖØ-öø-ÿĀ-ſ][A-Za-zÀ-ÖØ-öø-ÿĀ-ſ'’"“”.\-]*){0,2}(?:[ \t]+(?:Jr|Sr|II|III|IV|PhD|MD|DDS|Esq)\.?)?)/i);
   if (afterParen && personOK(afterParen[1], 1)) return clean(afterParen[1]);
   // 2) "by NAME" — but not "sold by", "shipped by", "published by", etc.
   const badBefore = /(sold|ship|ships|shipped|fulfil|fulfill|fulfilled|dispatch|dispatched|publish|published|distribute|distributed|market|marketed|power|powered|deliver|delivered|import|imported|present|presented|narrate|narrated|illustrate|illustrated|edit|edited|translate|translated|produce|produced|gone|goes|known)$/i;
   // skip promotional/navigation phrases that happen to follow "by" (e.g. "Delivery by Father's Day") and keep scanning for a real byline
   const navReject = /\b(day|sale|deal|promotion|customer|service|guidelines|categories|best sellers|new releases|gift cards)\b/i;
-  const re = /\bby[ \t]+([A-Z][A-Za-z'’.\-]*(?:[ \t]+[A-Z][A-Za-z'’.\-]*){1,2})/gi;
+  const re = /\bby[ \t]+(["“]?[A-ZÀ-ÖØ-öø-ÿĀ-ſ][A-Za-zÀ-ÖØ-öø-ÿĀ-ſ'’"“”.\-]*(?:[ \t]+["“]?[A-ZÀ-ÖØ-öø-ÿĀ-ſ][A-Za-zÀ-ÖØ-öø-ÿĀ-ſ'’"“”.\-]*){1,2}(?:[ \t]+(?:Jr|Sr|II|III|IV|PhD|MD|DDS|Esq)\.?)?)/gi;
   let m;
   while ((m = re.exec(text))) {
     const before = text.slice(Math.max(0, m.index - 24), m.index);
@@ -589,6 +589,7 @@ export default function App() {
   const [stats, setStats] = useState({ leads: 0, fields: 0, ready: 0 });
   const [leftPct, setLeftPct] = useState(50); // input panel width %, session-only
   const wsRef = useRef(null);
+  const taRef = useRef(null);
   const dragRef = useRef(false);
   const actionRef = useRef({});
 
@@ -654,6 +655,11 @@ export default function App() {
   const copyClean = async () => {
     if (link && !link.warning && (await clip(link.clean, link.clean))) flash("link");
   };
+
+  // Clear: empties the Raw Input (which clears all derived output/results/status messages),
+  // clears the transient copy indicator, and returns focus to the textarea. No file state exists (paste-only).
+  const canClear = raw.length > 0 || hasData;
+  const clearAll = () => { setRaw(""); setCopied(""); taRef.current?.focus(); };
 
   const vars = THEMES[theme].vars;
 
@@ -838,9 +844,12 @@ export default function App() {
         <div className="ws-pane" style={{ flex: `0 0 ${leftPct}%`, minWidth: 0 }}>
           <div className="lbl" style={{ color: "var(--ink-soft)", marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <span>Paste Raw Search Data</span>
-            <span style={{ opacity: .65 }}>{raw ? raw.length.toLocaleString() + " chars" : ""}</span>
+            <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ opacity: .65 }}>{raw ? raw.length.toLocaleString() + " chars" : ""}</span>
+              <button className="btn gho" style={{ fontSize: 11.5, padding: "5px 12px", borderRadius: 9 }} onClick={clearAll} disabled={!canClear}>Clear</button>
+            </span>
           </div>
-          <textarea value={raw} onChange={(e) => setRaw(e.target.value)} rows={24}
+          <textarea ref={taRef} value={raw} onChange={(e) => setRaw(e.target.value)} rows={24}
             placeholder="Paste a copied profile or book page here — Amazon, TruePeopleSearch, WhitePages, and more…"
             style={{ width: "100%", fontSize: 13, padding: 15, border: "1px solid var(--line)", borderRadius: 12, background: "var(--field)", color: "var(--ink)", resize: "vertical", lineHeight: 1.55 }} />
         </div>
