@@ -461,6 +461,9 @@ const THEMES = [
   { name: "Grove", vars: { "--bone": "#E7EAE1", "--paper": "#F1F4EB", "--ink": "#172019", "--ink-soft": "#586556", "--line": "#CDD5C4", "--accent": "#2F9159", "--accent-deep": "#1E6B3F", "--field": "#FFFFFF", "--focus": "rgba(47,145,89,.18)", "--note": "#DDEFC8", "--note-line": "#BBD79A", "--note-ink": "#1C3422", "--note-label": "#487231", "--note-link": "#1E6B3F", "--note-muted": "#A4C087" } },
   { name: "Bloom", vars: { "--bone": "#F0E6E9", "--paper": "#F9F0F3", "--ink": "#211519", "--ink-soft": "#6E5560", "--line": "#E0CBD3", "--accent": "#E0457E", "--accent-deep": "#B62C61", "--field": "#FFFFFF", "--focus": "rgba(224,69,126,.18)", "--note": "#FBD9E7", "--note-line": "#F0B6CE", "--note-ink": "#3A1623", "--note-label": "#9A3A66", "--note-link": "#B62C61", "--note-muted": "#CC93AC" } },
   { name: "Noir", vars: { "--bone": "#191A1F", "--paper": "#24262D", "--ink": "#EFEDE8", "--ink-soft": "#9FA0A9", "--line": "#373A43", "--accent": "#FF6A3D", "--accent-deep": "#E0512A", "--field": "#2A2D35", "--focus": "rgba(255,106,61,.22)", "--note": "#2C2F38", "--note-line": "#444856", "--note-ink": "#F0EEE9", "--note-label": "#D2A45C", "--note-link": "#FF9269", "--note-muted": "#6B6E7A" } },
+  { name: "Slate", vars: { "--bone": "#1A1D21", "--paper": "#23272D", "--ink": "#E8EAED", "--ink-soft": "#969BA3", "--line": "#353A42", "--accent": "#57A6D4", "--accent-deep": "#3D87B8", "--field": "#2A2F36", "--focus": "rgba(87,166,212,.22)", "--note": "#2B3038", "--note-line": "#434A55", "--note-ink": "#ECEEF1", "--note-label": "#7FB4D6", "--note-link": "#9CC8E6", "--note-muted": "#6A7079" } },
+  { name: "Midnight", vars: { "--bone": "#131A2A", "--paper": "#1C2538", "--ink": "#E7EBF2", "--ink-soft": "#8E99AE", "--line": "#2C3850", "--accent": "#5B8DEF", "--accent-deep": "#3E6BD0", "--field": "#232E45", "--focus": "rgba(91,141,239,.24)", "--note": "#222C42", "--note-line": "#3A4763", "--note-ink": "#EAEEF6", "--note-label": "#8FA9E0", "--note-link": "#A8BCEC", "--note-muted": "#6E7896" } },
+  { name: "Sand", vars: { "--bone": "#E7DECB", "--paper": "#F3ECDA", "--ink": "#2A2419", "--ink-soft": "#786E59", "--line": "#D8CDB4", "--accent": "#C0892E", "--accent-deep": "#9A6A1C", "--field": "#FBF6EA", "--focus": "rgba(192,137,46,.20)", "--note": "#F4E3B8", "--note-line": "#E2C98A", "--note-ink": "#3A2E12", "--note-label": "#8A6E26", "--note-link": "#8A5A1C", "--note-muted": "#B6A064" } },
 ];
 
 // ---- minimalist inline icons (no dependencies) ----
@@ -581,6 +584,7 @@ export default function App() {
   const [raw, setRaw] = useState("");
   const [copied, setCopied] = useState("");
   const [theme, setTheme] = useState(0);
+  const [themeOpen, setThemeOpen] = useState(false);
   const [stats, setStats] = useState({ leads: 0, fields: 0, ready: 0 });
   const [leftPct, setLeftPct] = useState(50); // input panel width %, session-only
   const wsRef = useRef(null);
@@ -634,8 +638,15 @@ export default function App() {
     if (await clip(plain, html)) { flash("row"); tally(); }
   };
   const copyCol = async () => {
-    const plain = cells.map(q).join("\n");
-    const html = `<table>${cells.map((c) => `<tr><td>${esc(c)}</td></tr>`).join("")}</table>`;
+    // Copy Column only: combine name components into one line and skip blank/empty values
+    const colVals = [];
+    if (fullName) colVals.push(fullName);
+    SLOTS.forEach((slot, i) => {
+      if (slot.blank || slot.key === "firstName" || slot.key === "lastName") return;
+      if (cells[i]) colVals.push(cells[i]);
+    });
+    const plain = colVals.map(q).join("\n");
+    const html = `<table>${colVals.map((c) => `<tr><td>${esc(c)}</td></tr>`).join("")}</table>`;
     if (await clip(plain, html)) { flash("col"); tally(); }
   };
 
@@ -777,17 +788,30 @@ export default function App() {
         </div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
           <span className="mono" style={{ fontSize: 10, fontWeight: 600, color: "var(--ink-soft)", padding: "5px 9px", borderRadius: 99, border: "1px solid var(--line)", background: "var(--field)" }}>v{VERSION}</span>
-          {THEMES.map((t, i) => {
-            const active = theme === i;
-            return (
-              <button key={t.name} onClick={() => setTheme(i)} title={t.name} className="swatch"
-                style={{ background: active ? "var(--ink)" : "var(--field)", color: active ? "var(--bone)" : "var(--ink)",
-                  border: `1px solid ${active ? "var(--ink)" : "var(--line)"}`, boxShadow: active ? "0 6px 16px -6px var(--focus)" : "none" }}>
-                <span className="dot" style={{ background: t.vars["--accent"], boxShadow: `inset 0 0 0 2px ${t.vars["--note"]}, 0 0 0 1px rgba(0,0,0,.08)` }} />
-                <span className="swatch-label">{t.name}</span>
-              </button>
-            );
-          })}
+          <div style={{ position: "relative" }}>
+            <button onClick={() => setThemeOpen((o) => !o)} title="Theme" aria-haspopup="listbox" aria-expanded={themeOpen} className="swatch"
+              style={{ background: "var(--field)", color: "var(--ink)", border: "1px solid var(--line)" }}>
+              <span className="dot" style={{ background: THEMES[theme].vars["--accent"], boxShadow: `inset 0 0 0 2px ${THEMES[theme].vars["--note"]}, 0 0 0 1px rgba(0,0,0,.08)` }} />
+              <span className="swatch-label">{THEMES[theme].name}</span>
+              <span style={{ fontSize: 9, opacity: .65, marginLeft: 1 }}>▾</span>
+            </button>
+            {themeOpen && (<>
+              <div onClick={() => setThemeOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+              <div role="listbox" style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 41, background: "var(--paper)", border: "1px solid var(--line)", borderRadius: 10, padding: 5, minWidth: 152, boxShadow: "0 14px 32px -12px rgba(0,0,0,.4)" }}>
+                {THEMES.map((t, i) => {
+                  const active = theme === i;
+                  return (
+                    <button key={t.name} role="option" aria-selected={active} onClick={() => { setTheme(i); setThemeOpen(false); }}
+                      style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", cursor: "pointer", border: "none", borderRadius: 7, padding: "7px 9px", fontFamily: "'JetBrains Mono', monospace", fontSize: 11.5, fontWeight: 600, background: active ? "var(--focus)" : "transparent", color: "var(--ink)" }}>
+                      <span className="dot" style={{ background: t.vars["--accent"], boxShadow: `inset 0 0 0 2px ${t.vars["--note"]}, 0 0 0 1px rgba(0,0,0,.08)` }} />
+                      <span style={{ flex: 1 }}>{t.name}</span>
+                      {active && <span style={{ fontSize: 10, color: "var(--accent)" }}>✓</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            </>)}
+          </div>
         </div>
       </div>
 
@@ -796,7 +820,7 @@ export default function App() {
         {/* input */}
         <div className="ws-pane" style={{ flex: `0 0 ${leftPct}%`, minWidth: 0 }}>
           <div className="lbl" style={{ color: "var(--ink-soft)", marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span>Paste Search Results</span>
+            <span>Paste Raw Search Data</span>
             <span style={{ opacity: .65 }}>{raw ? raw.length.toLocaleString() + " chars" : ""}</span>
           </div>
           <textarea value={raw} onChange={(e) => setRaw(e.target.value)} rows={24}
@@ -845,6 +869,10 @@ export default function App() {
                   : <><span className="statdot" style={{ background: "#1faa6b" }} />Ready for Extraction</>}
               </span>
             </div>
+          </div>
+
+          <div style={{ color: "var(--ink-soft)", fontSize: 11, marginBottom: 12, lineHeight: 1.5 }}>
+            Spreadsheet Tip: Paste copied rows starting in Column B (Name column) to maintain proper alignment.
           </div>
 
           <div className="sheet-wrap">
