@@ -585,6 +585,7 @@ export default function App() {
   const [copied, setCopied] = useState("");
   const [theme, setTheme] = useState(0);
   const [themeOpen, setThemeOpen] = useState(false);
+  const [installEvt, setInstallEvt] = useState(null);
   const [stats, setStats] = useState({ leads: 0, fields: 0, ready: 0 });
   const [leftPct, setLeftPct] = useState(50); // input panel width %, session-only
   const wsRef = useRef(null);
@@ -670,6 +671,15 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  // PWA install: capture the browser's install prompt so we can offer an in-app button (only fires on supported browsers when installable)
+  useEffect(() => {
+    const onPrompt = (e) => { e.preventDefault(); setInstallEvt(e); };
+    const onInstalled = () => setInstallEvt(null);
+    window.addEventListener("beforeinstallprompt", onPrompt);
+    window.addEventListener("appinstalled", onInstalled);
+    return () => { window.removeEventListener("beforeinstallprompt", onPrompt); window.removeEventListener("appinstalled", onInstalled); };
   }, []);
 
   // resizable input/output divider (desktop). Clamped 28–72%; session-only; stacks via CSS under 760px.
@@ -787,6 +797,13 @@ export default function App() {
           <p style={{ margin: 0, fontSize: 13.5, color: "var(--ink-soft)" }}>Parse search results into structured lead data.</p>
         </div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+          {installEvt && (
+            <button className="swatch" title="Install as desktop app"
+              onClick={async () => { installEvt.prompt(); await installEvt.userChoice; setInstallEvt(null); }}
+              style={{ background: "var(--accent)", color: "#fff", border: "1px solid var(--accent)" }}>
+              <span style={{ fontSize: 11 }}>⤓</span><span className="swatch-label">Install App</span>
+            </button>
+          )}
           <span className="mono" style={{ fontSize: 10, fontWeight: 600, color: "var(--ink-soft)", padding: "5px 9px", borderRadius: 99, border: "1px solid var(--line)", background: "var(--field)" }}>v{VERSION}</span>
           <div style={{ position: "relative" }}>
             <button onClick={() => setThemeOpen((o) => !o)} title="Theme" aria-haspopup="listbox" aria-expanded={themeOpen} className="swatch"
