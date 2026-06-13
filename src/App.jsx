@@ -376,10 +376,14 @@ function parse(text, meta = {}) {
       if (cand && !DISQUALIFY.test(cand)) { name = cand; break; }
     }
   }
-  if (!name) {
+  if (!name && lines.length === 1) {
+    // Strict single-line gate: the bare-name fallback may only fire when the entire
+    // paste is one lone, name-shaped line that is not publisher/imprint/marketing text.
     const junk = /@|\d|http|phone|address|property|book|publish|imprint|amazon|value|email|street|linkedin|website|skip|sign|cart|account|menu|search|deliver|return|order|deal|customer|review|department|hello|select|content|main|home|gift|prime|wish|follow|share|\bbuy\b|price|stock|seller|ship|format|edition|paperback|hardcover|kindle|audible|rating|star|barnes|noble|\bby\b/i;
-    const nameRe = /^[A-Z][A-Za-z'’.\-]*(?:\s+[A-Z][A-Za-z'’.\-]*){1,2}$/;
-    name = lines.slice(0, leadEnd).find((l) => nameRe.test(l) && !junk.test(l) && !DISQUALIFY.test(l)) || "";
+    const notPerson = /\b(press|media|publishing|publications|publisher|imprint|editions?|books?|studios?|productions?|group|company|enterprises|collective|author|sellers?|selling|bestseller|rated|featured|sponsored)\b/i;
+    const nameRe = /^[A-ZÀ-ÖØ-öø-ÿĀ-ſ][A-Za-zÀ-ÖØ-öø-ÿĀ-ſ'’.\-]*(?:\s+[A-ZÀ-ÖØ-öø-ÿĀ-ſ][A-Za-zÀ-ÖØ-öø-ÿĀ-ſ'’.\-]*){1,2}(?:\s+(?:Jr|Sr|II|III|IV|PhD|MD|DDS|Esq)\.?)?$/;
+    const one = lines[0];
+    if (nameRe.test(one) && !junk.test(one) && !notPerson.test(one) && !DISQUALIFY.test(one)) name = one;
   }
   name = name.replace(/\s+/g, " ").trim();
   if (DISQUALIFY.test(name)) name = "";
@@ -580,20 +584,48 @@ function normalizeDate(v) {
   return s; // cannot confidently parse → leave original unchanged
 }
 
+// Presentation-only: abbreviate a recognized "FullMonth YYYY" to 3-letter "Mon YYYY" for all
+// user-facing output (display + copy/export). Internal rec.datePublished is left untouched.
+function abbrevMonthYear(s) {
+  const m = (s || "").match(/^([A-Za-z]+)\s+(\d{4})$/);
+  if (!m) return s;
+  const i = MONTHS.indexOf(m[1]);
+  return i >= 0 ? `${MONTHS[i].slice(0, 3)} ${m[2]}` : s;
+}
+
 export default function App() {
   const [raw, setRaw] = useState("");
   const [copied, setCopied] = useState("");
   const [theme, setTheme] = useState(0);
   const [themeOpen, setThemeOpen] = useState(false);
   const [installEvt, setInstallEvt] = useState(null);
+  const [rowMode, setRowMode] = useState(() => { try { return localStorage.getItem("mr_rowMode") === "full" ? "full" : "separate"; } catch { return "separate"; } });
+  const [rowMenuOpen, setRowMenuOpen] = useState(false);
+  const [modeMsg, setModeMsg] = useState("");
   const [stats, setStats] = useState({ leads: 0, fields: 0, ready: 0 });
   const [leftPct, setLeftPct] = useState(50); // input panel width %, session-only
   const wsRef = useRef(null);
   const taRef = useRef(null);
+  const modeMsgTimer = useRef(null);
   const dragRef = useRef(false);
   const actionRef = useRef({});
 
   const rec = useMemo(() => parse(raw), [raw]);
+  // Override layer (correction tool): a filled field wins outright; blank falls back to extraction.
+  // Extraction (parse/rec) is never modified — this only overlays final values.
+  const [ovFirst, setOvFirst] = useState("");
+  const [ovLast, setOvLast] = useState("");
+  const [ovBookTitle, setOvBookTitle] = useState("");
+  const [ovImprint, setOvImprint] = useState("");
+  const erec = useMemo(() => ({
+    ...rec,
+    firstName: ovFirst.trim() || rec.firstName,
+    lastName: ovLast.trim() || rec.lastName,
+    bookTitle: ovBookTitle.trim() || rec.bookTitle,
+    imprint: ovImprint.trim() || rec.imprint,
+  }), [rec, ovFirst, ovLast, ovBookTitle, ovImprint]);
+  const [ovOpen, setOvOpen] = useState(false); // overrides collapsed by default
+  const ovActive = !!(ovFirst.trim() || ovLast.trim() || ovBookTitle.trim() || ovImprint.trim());
   const built = useMemo(() => buildPhones(rec.phones), [rec.phones]);
   const source = useMemo(() => detectSource(raw), [raw]);
   const trimmedRaw = raw.trim();
@@ -609,25 +641,25 @@ export default function App() {
     if (slot.key === "phone") return built[0]?.display || "";
     if (slot.key === "otherPhone") return built.slice(1).map((n) => n.display).join(", ");
     if (slot.key === "amazon") return cleanAmazon(rec.amazon);
-    if (slot.key === "datePublished") return normalizeDate(rec.datePublished);
-    return rec[slot.key] || "";
+    if (slot.key === "datePublished") return abbrevMonthYear(normalizeDate(rec.datePublished));
+    return erec[slot.key] || "";
   };
-  const cells = useMemo(() => SLOTS.map(valueOf), [rec, built]);
+  const cells = useMemo(() => SLOTS.map(valueOf), [erec, built]);
 
   // value for a single field key (for the grouped display only)
   const fieldVal = (key) => {
     if (key === "phone") return built[0]?.display || "";
     if (key === "otherPhone") return built.slice(1).map((n) => n.display).join(", ");
     if (key === "amazon") return cleanAmazon(rec.amazon);
-    if (key === "datePublished") return normalizeDate(rec.datePublished);
-    return rec[key] || "";
+    if (key === "datePublished") return abbrevMonthYear(normalizeDate(rec.datePublished));
+    return erec[key] || "";
   };
 
   const populated = FIELDS.filter((k) => fieldVal(k)).length;
   const completeness = Math.round((populated / FIELDS.length) * 100);
   const hasData = populated > 0;
   const tier = completeness >= 90 ? "Comprehensive" : completeness >= 70 ? "Detailed" : completeness >= 40 ? "Moderate" : "Limited";
-  const fullName = [rec.firstName, rec.lastName].filter(Boolean).join(" ").trim();
+  const fullName = [erec.firstName, erec.lastName].filter(Boolean).join(" ").trim();
   const initials = ((rec.firstName?.[0] || "") + (rec.lastName?.[0] || "")).toUpperCase() || "—";
   const fmt = (n) => n.toLocaleString();
   const successRate = stats.leads ? Math.round((stats.ready / stats.leads) * 100) : null;
@@ -635,8 +667,13 @@ export default function App() {
   const flash = (k) => { setCopied(k); setTimeout(() => setCopied(""), 1600); };
   const tally = () => setStats((s) => ({ leads: s.leads + 1, fields: s.fields + populated, ready: s.ready + (completeness >= 70 ? 1 : 0) }));
   const copyRow = async () => {
-    const plain = cells.map(q).join("\t");
-    const html = `<table><tr>${cells.map((c) => `<td>${esc(c)}</td>`).join("")}</tr></table>`;
+    // Export-format only: "full" places the combined name in the First Name cell and blanks the Last Name cell.
+    // Same 16-cell length/order; "separate" is byte-identical to the previous behavior.
+    const rowCells = rowMode === "full"
+      ? SLOTS.map((slot, i) => (slot.key === "firstName" ? fullName : slot.key === "lastName" ? "" : cells[i]))
+      : cells;
+    const plain = rowCells.map(q).join("\t");
+    const html = `<table><tr>${rowCells.map((c) => `<td>${esc(c)}</td>`).join("")}</tr></table>`;
     if (await clip(plain, html)) { flash("row"); tally(); }
   };
   const copyCol = async () => {
@@ -659,7 +696,18 @@ export default function App() {
   // Clear: empties the Raw Input (which clears all derived output/results/status messages),
   // clears the transient copy indicator, and returns focus to the textarea. No file state exists (paste-only).
   const canClear = raw.length > 0 || hasData;
-  const clearAll = () => { setRaw(""); setCopied(""); taRef.current?.focus(); };
+  const clearAll = () => { setRaw(""); setCopied(""); setOvFirst(""); setOvLast(""); setOvBookTitle(""); setOvImprint(""); taRef.current?.focus(); };
+  const ovStyle = { width: "100%", fontSize: 12, padding: "7px 9px", border: "1px solid var(--line)", borderRadius: 8, background: "var(--field)", color: "var(--ink)", boxSizing: "border-box" };
+
+  // Row export mode preference (export-format only; does not copy). Persists for the session, optionally across refresh.
+  const chooseRowMode = (mode) => {
+    setRowMode(mode);
+    setRowMenuOpen(false);
+    try { localStorage.setItem("mr_rowMode", mode); } catch {}
+    setModeMsg(mode === "full" ? "Row mode: Full Name" : "Row mode: Separate Name");
+    if (modeMsgTimer.current) clearTimeout(modeMsgTimer.current);
+    modeMsgTimer.current = setTimeout(() => setModeMsg(""), 2600);
+  };
 
   const vars = THEMES[theme].vars;
 
@@ -847,8 +895,21 @@ export default function App() {
             <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <span style={{ opacity: .65 }}>{raw ? raw.length.toLocaleString() + " chars" : ""}</span>
               <button className="btn gho" style={{ fontSize: 11.5, padding: "5px 12px", borderRadius: 9 }} onClick={clearAll} disabled={!canClear}>Clear</button>
+              <button className="btn gho" style={{ fontSize: 11.5, padding: "5px 12px", borderRadius: 9, display: "inline-flex", alignItems: "center", gap: 5 }} onClick={() => setOvOpen((v) => !v)} aria-expanded={ovOpen} title="Manual override fields">
+                Overrides
+                {ovActive && <span aria-hidden="true" title="Overrides active" style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--accent)", display: "inline-block" }} />}
+                <span style={{ fontSize: 9, opacity: .7 }}>{ovOpen ? "▲" : "▼"}</span>
+              </button>
             </span>
           </div>
+          {ovOpen && (
+            <div style={{ marginBottom: 10, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <input value={ovFirst} onChange={(e) => setOvFirst(e.target.value)} placeholder="First Name" style={ovStyle} />
+              <input value={ovLast} onChange={(e) => setOvLast(e.target.value)} placeholder="Last Name" style={ovStyle} />
+              <input value={ovBookTitle} onChange={(e) => setOvBookTitle(e.target.value)} placeholder="Book Title" style={ovStyle} />
+              <input value={ovImprint} onChange={(e) => setOvImprint(e.target.value)} placeholder="Imprint" style={ovStyle} />
+            </div>
+          )}
           <textarea ref={taRef} value={raw} onChange={(e) => setRaw(e.target.value)} rows={24}
             placeholder="Paste a copied profile or book page here — Amazon, TruePeopleSearch, WhitePages, and more…"
             style={{ width: "100%", fontSize: 13, padding: 15, border: "1px solid var(--line)", borderRadius: 12, background: "var(--field)", color: "var(--ink)", resize: "vertical", lineHeight: 1.55 }} />
@@ -881,12 +942,31 @@ export default function App() {
           )}
           {!urlMode && (<>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", marginBottom: 16 }}>
-            <button className={"btn pri" + (copied === "row" ? " pop" : "")} style={{ fontSize: 12.5, padding: "10px 16px", borderRadius: 10 }} onClick={copyRow} disabled={!hasData}>
-              <Icon name={copied === "row" ? "check" : "rows"} size={15} />{copied === "row" ? "Copied" : "Copy row"}
+            <div style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
+              <button className={"btn pri" + (copied === "row" ? " pop" : "")} style={{ fontSize: 12.5, padding: "10px 14px", borderRadius: "10px 0 0 10px" }} onClick={copyRow} disabled={!hasData} title="Copy Row Format">
+                {copied === "row" ? <><Icon name="check" size={15} />Copied</> : "⧉ Row"}
+              </button>
+              <button className="btn pri" style={{ fontSize: 10, padding: "10px 9px", borderRadius: "0 10px 10px 0", borderLeft: "1px solid var(--line)" }} onClick={() => setRowMenuOpen((o) => !o)} title="Row name format" aria-haspopup="listbox" aria-expanded={rowMenuOpen}>▼</button>
+              {rowMenuOpen && (<>
+                <div onClick={() => setRowMenuOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+                <div role="listbox" style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 41, background: "var(--paper)", border: "1px solid var(--line)", borderRadius: 10, padding: 5, minWidth: 188, boxShadow: "0 14px 32px -12px rgba(0,0,0,.4)" }}>
+                  {[["separate", "Separate Name (Default)"], ["full", "Full Name"]].map(([val, label]) => {
+                    const active = rowMode === val;
+                    return (
+                      <button key={val} role="option" aria-selected={active} onClick={() => chooseRowMode(val)}
+                        style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", cursor: "pointer", border: "none", borderRadius: 7, padding: "7px 9px", fontFamily: "'JetBrains Mono', monospace", fontSize: 11.5, fontWeight: 600, background: active ? "var(--focus)" : "transparent", color: "var(--ink)" }}>
+                        <span style={{ flex: 1 }}>{label}</span>
+                        {active && <span style={{ fontSize: 10, color: "var(--accent)" }}>✓</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              </>)}
+            </div>
+            <button className={"btn gho" + (copied === "col" ? " pop" : "")} style={{ fontSize: 12.5, padding: "10px 16px", borderRadius: 10 }} onClick={copyCol} disabled={!hasData} title="Copy Column Format">
+              {copied === "col" ? <><Icon name="check" size={15} />Copied</> : "⧉ Column"}
             </button>
-            <button className={"btn gho" + (copied === "col" ? " pop" : "")} style={{ fontSize: 12.5, padding: "10px 16px", borderRadius: 10 }} onClick={copyCol} disabled={!hasData}>
-              <Icon name={copied === "col" ? "check" : "cols"} size={15} />{copied === "col" ? "Copied" : "Copy column"}
-            </button>
+            {modeMsg && <span aria-live="polite" style={{ fontSize: 11, color: "var(--ink-soft)", opacity: .85 }}>{modeMsg}</span>}
             <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
               <span className="kbdhint" title="Ctrl/Cmd + Enter → Copy row     Ctrl/Cmd + Shift + Enter → Copy column">⌨ Shortcuts</span>
               <span className={"statpill" + (hasData ? " live" : "")}>
@@ -986,12 +1066,13 @@ export default function App() {
           {hasData && (
             <div style={{ position: "sticky", bottom: 12, zIndex: 5, display: "flex", justifyContent: "flex-end", marginTop: 14, pointerEvents: "none" }}>
               <div style={{ display: "flex", gap: 8, padding: 7, borderRadius: 12, background: "var(--paper)", border: "1px solid var(--line)", boxShadow: "0 10px 28px -10px rgba(0,0,0,.35)", pointerEvents: "auto" }}>
-                <button className={"btn pri" + (copied === "row" ? " pop" : "")} style={{ fontSize: 12, padding: "8px 14px", borderRadius: 9 }} onClick={copyRow} disabled={!hasData}>
-                  <Icon name={copied === "row" ? "check" : "rows"} size={14} />{copied === "row" ? "Copied" : "Copy row"}
+                <button className={"btn gho" + (copied === "row" ? " pop" : "")} style={{ fontSize: 12, padding: "8px 14px", borderRadius: 9 }} onClick={copyRow} disabled={!hasData} title="Copy Row Format">
+                  {copied === "row" ? <><Icon name="check" size={14} />Copied</> : "⧉ Row"}
                 </button>
-                <button className={"btn gho" + (copied === "col" ? " pop" : "")} style={{ fontSize: 12, padding: "8px 14px", borderRadius: 9 }} onClick={copyCol} disabled={!hasData}>
-                  <Icon name={copied === "col" ? "check" : "cols"} size={14} />{copied === "col" ? "Copied" : "Copy column"}
+                <button className={"btn gho" + (copied === "col" ? " pop" : "")} style={{ fontSize: 12, padding: "8px 14px", borderRadius: 9 }} onClick={copyCol} disabled={!hasData} title="Copy Column Format">
+                  {copied === "col" ? <><Icon name="check" size={14} />Copied</> : "⧉ Column"}
                 </button>
+                <button className="btn gho" style={{ fontSize: 12, padding: "8px 14px", borderRadius: 9 }} onClick={clearAll} disabled={!canClear} title="Clear Input and Results">Clear</button>
               </div>
             </div>
           )}
