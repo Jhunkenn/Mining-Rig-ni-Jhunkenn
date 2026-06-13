@@ -724,6 +724,23 @@ export default function App() {
   // clears the transient copy indicator, and returns focus to the textarea. No file state exists (paste-only).
   const canClear = raw.length > 0 || hasData;
   const clearAll = () => { setRaw(""); setCopied(""); setOvFirst(""); setOvLast(""); setOvBookTitle(""); setOvImprint(""); taRef.current?.focus(); };
+  // ---- override cross-lead-contamination safeguard (Approach 2) ----
+  // Overrides belong to the lead currently in Raw. A *whole-lead* replace/remove must clear them so they
+  // can't carry into the next lead; a partial edit must NOT. Two event-based triggers, no empty-state check:
+  const resetOverrides = () => { setOvFirst(""); setOvLast(""); setOvBookTitle(""); setOvImprint(""); };
+  const onRawChange = (e) => {
+    const next = e.target.value;
+    // (a) deleting ALL raw text: non-empty -> empty transition (handles Ctrl+A then Delete/Backspace).
+    if (raw !== "" && next === "") resetOverrides();
+    setRaw(next);
+  };
+  const onRawPaste = (e) => {
+    // (b) pasting over a full selection replaces the whole lead (handles Ctrl+A then Paste). onPaste fires
+    // before the value changes, so selectionStart/End still describe what is about to be replaced.
+    const el = e.currentTarget;
+    if (el.value.length > 0 && el.selectionStart === 0 && el.selectionEnd === el.value.length) resetOverrides();
+    // the pasted text still flows through onRawChange normally; no preventDefault.
+  };
   const ovStyle = { width: "100%", fontSize: 12, padding: "7px 9px", border: "1px solid var(--line)", borderRadius: 8, background: "var(--field)", color: "var(--ink)", boxSizing: "border-box" };
 
   // Row export mode preference (export-format only; does not copy). Persists for the session, optionally across refresh.
@@ -942,7 +959,7 @@ export default function App() {
               </div>
             </div>
           )}
-          <textarea ref={taRef} value={raw} onChange={(e) => setRaw(e.target.value)} rows={24}
+          <textarea ref={taRef} value={raw} onChange={onRawChange} onPaste={onRawPaste} rows={24}
             placeholder="Paste a copied profile or book page here — Amazon, TruePeopleSearch, WhitePages, and more…"
             style={{ width: "100%", fontSize: 13, padding: 15, border: "1px solid var(--line)", borderRadius: 12, background: "var(--field)", color: "var(--ink)", resize: "vertical", lineHeight: 1.55 }} />
         </div>
