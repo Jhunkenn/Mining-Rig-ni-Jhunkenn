@@ -11,28 +11,37 @@ function extractPhones(text) {
   const e164 = /(?<!\d)\+\d{10,15}(?!\d)/g;
   // numbers explicitly flagged inactive in nearby text are dropped (text-only; no validation/lookups)
   const dead = /\b(disconnected|inactive|invalid|no longer in service|not in service|retired number|dead number|disconnected line)\b/i;
-  const lines = text.split(/\r?\n/);
-  const seen = new Set(), out = [];
-  for (let li = 0; li < lines.length; li++) {
-    const line = lines[li];
-    if (/\b(isbn|asin|upc|ean|sku)\b/i.test(line)) continue; // ignore product identifiers
-    const re = /\b(phone|tel|mobile|cell|fax|call)\b/i.test(line) ? loose : strict;
-    for (const m of [...(line.match(re) || []), ...(line.match(e164) || [])]) {
-      let d = m.replace(/\D/g, "");
-      if (d.length === 11 && d[0] === "1") d = d.slice(1);
-      if (d.length !== 10 || seen.has(d)) continue; // dedupe by 10-digit number
-      seen.add(d);
-      // auto-detect type + year from this line, borrowing the next line only if it isn't another number
-      const nextL = lines[li + 1] || "";
-      const nextHasPhone = /(?<!\d)\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}(?!\d)/.test(nextL);
-      const ctx = (line + (nextHasPhone ? "" : " " + nextL)).toLowerCase();
-      if (dead.test(ctx)) continue; // drop numbers explicitly marked inactive/disconnected nearby
-      let type = "Unknown";
-      if (/\b(wireless|mobile|cell|cellular)\b/.test(ctx)) type = "Mobile";
-      else if (/\b(landline|land\s*line|home|residential|wire\s?line|wired)\b/.test(ctx)) type = "Landline";
-      const ym = ctx.match(/\b(?:19|20)\d{2}\b/);
-      out.push({ digits: d, display: `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`, type, year: ym ? parseInt(ym[0]) : null });
+  const T = text.replace(/\r\n?/g, "\n"); // normalize line endings so per-number windows use exact offsets
+  const lines = T.split("\n");
+  // PASS 1: collect number matches with absolute positions, honoring per-line strict/loose + ISBN skip.
+  const cands = [];
+  let pos = 0;
+  for (const line of lines) {
+    if (!/\b(isbn|asin|upc|ean|sku)\b/i.test(line)) { // ignore product identifiers
+      const re = /\b(phone|tel|mobile|cell|fax|call)\b/i.test(line) ? loose : strict;
+      for (const mm of [...line.matchAll(re), ...line.matchAll(e164)]) cands.push({ raw: mm[0], start: pos + mm.index });
     }
+    pos += line.length + 1; // +1 for the "\n" removed by split
+  }
+  cands.sort((a, b) => a.start - b.start);
+  const seen = new Set(), out = [];
+  for (let i = 0; i < cands.length; i++) {
+    let d = cands[i].raw.replace(/\D/g, "");
+    if (d.length === 11 && d[0] === "1") d = d.slice(1);
+    if (d.length !== 10 || seen.has(d)) continue; // dedupe by 10-digit number
+    seen.add(d);
+    // PER-NUMBER metadata window: from immediately after this number to the next number (or end of text),
+    // truncated at the first blank-line block break. type + year are read from this window ONLY, so numbers
+    // sharing a line/block no longer inherit a neighbour's type/year.
+    const winStart = cands[i].start + cands[i].raw.length;
+    const winEnd = i + 1 < cands.length ? cands[i + 1].start : T.length;
+    const ctx = T.slice(winStart, winEnd).split(/\n\s*\n/)[0].toLowerCase();
+    if (dead.test(ctx)) continue; // drop numbers explicitly marked inactive/disconnected nearby
+    let type = "Unknown";
+    if (/\b(wireless|mobile|cell|cellular)\b/.test(ctx)) type = "Mobile";
+    else if (/\b(landline|land\s*line|home|residential|wire\s?line|wired)\b/.test(ctx)) type = "Landline";
+    const ym = ctx.match(/\b(?:19|20)\d{2}\b/);
+    out.push({ digits: d, display: `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`, type, year: ym ? parseInt(ym[0]) : null });
   }
   return out;
 }
@@ -356,6 +365,23 @@ function parse(text, meta = {}) {
   const DISQUALIFY = /\b(fair credit|skip to (?:the )?main content|join prime|day|sale|deal|promotion|customer|service|books|categories|guidelines|home|best sellers|new releases|gift cards)\b/i;
   const nameL = find(/^name\s*:/i);
   let name = nameL ? after(nameL) : "";
+  // FastBackgroundCheck: capture the record's own identity FIRST — ahead of authorName (whose "by …"
+  // rule otherwise matches footer text like "by the Fair Credit Reporting Act", a non-empty value that
+  // would skip this block, get disqualified, and let the people-search fallback grab a sidebar heading
+  // like "Quick Links") and ahead of the generic age-anchor heuristic
+  // (which otherwise mis-selects sidebar headings like "Quick Links"). PRIMARY: the record title
+  // "<Name> in <City>, <State>". FALLBACK: the "Full Name <value>" field, label-bounded so it cannot
+  // absorb adjacent profile data (Born/Age/etc.). The atom mirrors authorName (accent- and
+  // quoted-nickname-aware); the captured string flows through the same splitName pipeline as every
+  // other source. Scoped to this source only — no other source reaches this block.
+  if (!name && detectSource(T) === "FastBackgroundCheck") {
+    const atom = `["“]?[A-ZÀ-ÖØ-öø-ÿĀ-ſ][A-Za-zÀ-ÖØ-öø-ÿĀ-ſ'’"“”.\\-]*`;
+    const NM = atom + `(?:\\s+` + atom + `){0,3}`;
+    const titleRe = new RegExp(`^(${NM})\\s+in\\s+[A-ZÀ-ÖØ-öø-ÿĀ-ſ][A-Za-zÀ-ÖØ-öø-ÿĀ-ſ .'’\\-]+,`);
+    const fullRe = new RegExp(`\\bFull\\s+Name\\b[\\s:]+(${atom}(?:\\s+${atom}){0,3}?)(?=\\s+(?:Born|Age|Zodiac|DOB|Date\\s+of\\s+Birth|Address|Current|Marital)\\b|\\s*$)`, "m");
+    for (const l of lines) { const m = l.match(titleRe); if (m) { name = m[1]; break; } }
+    if (!name) { const m = T.match(fullRe); if (m) name = m[1].trim(); }
+  }
   if (!name) name = authorName(T);
   // Never read names out of relative / background sections — those list family, not the lead.
   const RELATIVES = /(background\s+profile|public\s+records?\s+report|possible\s+relatives?|^relatives?\b|associated\s+(?:persons?|names?)|known\s+associates?)/i;
@@ -526,6 +552,7 @@ const VERSION = "0.9.0"; // display only — bump this string as you release; no
 // "Detected Source" badge. It does NOT feed parse()/extraction in any way — purely a confidence cue.
 function detectSource(text) {
   const t = text || "";
+  if (/fastbackgroundcheck/i.test(t)) return "FastBackgroundCheck";
   if (/truepeoplesearch/i.test(t)) return "TruePeopleSearch";
   if (/whitepages/i.test(t)) return "WhitePages";
   if (/canada\s?411/i.test(t)) return "Canada411";
@@ -815,7 +842,8 @@ export default function App() {
     .statpill { display:inline-flex; align-items:center; gap:7px; font-size:11.5px; font-weight:600; padding:6px 11px; border-radius:99px; border:1px solid var(--line); background:var(--field); color:var(--ink-soft); white-space:nowrap; }
     .statpill.live { color:var(--ink); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
     .statdot { width:8px; height:8px; border-radius:50%; flex:0 0 auto; }
-    .kbdhint { font-size:10px; font-weight:600; color:var(--ink-soft); padding:5px 9px; border-radius:99px; border:1px dashed var(--line); background:transparent; cursor:default; user-select:none; }
+    .ovsug { align-self:flex-start; background:transparent; border:0; padding:1px 3px; margin:0; font-size:11px; line-height:1.3; color:var(--ink-soft); opacity:.7; cursor:pointer; }
+    .ovsug:hover { opacity:1; text-decoration:underline; }
     @media (max-width: 760px) {
       .ws { flex-direction: column; }
       .ws .ws-pane { flex: 1 1 auto !important; width: 100%; }
@@ -827,7 +855,6 @@ export default function App() {
       .sheet { padding: 24px 16px 18px; }
       .swatch-label { display: none; }
       .swatch { gap: 0; padding: 7px; }
-      .kbdhint { display: none; }
       .stat { min-width: 0; flex: 1 1 0; }
     }
     @keyframes fadeUp { from { opacity:0; transform: translateY(10px); } to { opacity:1; transform:none; } }
@@ -903,11 +930,16 @@ export default function App() {
             </span>
           </div>
           {ovOpen && (
-            <div style={{ marginBottom: 10, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <div style={{ marginBottom: 10, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, alignItems: "start" }}>
               <input value={ovFirst} onChange={(e) => setOvFirst(e.target.value)} placeholder="First Name" style={ovStyle} />
               <input value={ovLast} onChange={(e) => setOvLast(e.target.value)} placeholder="Last Name" style={ovStyle} />
               <input value={ovBookTitle} onChange={(e) => setOvBookTitle(e.target.value)} placeholder="Book Title" style={ovStyle} />
-              <input value={ovImprint} onChange={(e) => setOvImprint(e.target.value)} placeholder="Imprint" style={ovStyle} />
+              <div style={{ display: "flex", flexDirection: "column", gap: 3, minWidth: 0 }}>
+                <input value={ovImprint} onChange={(e) => setOvImprint(e.target.value)} placeholder="Imprint" style={ovStyle} />
+                {!ovImprint.trim() && (
+                  <button type="button" className="ovsug" onClick={() => setOvImprint("Independently Published")} title="Click to fill: Independently Published">↳ Independently Published</button>
+                )}
+              </div>
             </div>
           )}
           <textarea ref={taRef} value={raw} onChange={(e) => setRaw(e.target.value)} rows={24}
@@ -968,7 +1000,6 @@ export default function App() {
             </button>
             {modeMsg && <span aria-live="polite" style={{ fontSize: 11, color: "var(--ink-soft)", opacity: .85 }}>{modeMsg}</span>}
             <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
-              <span className="kbdhint" title="Ctrl/Cmd + Enter → Copy row     Ctrl/Cmd + Shift + Enter → Copy column">⌨ Shortcuts</span>
               <span className={"statpill" + (hasData ? " live" : "")}>
                 {hasData
                   ? <><span style={{ color: "var(--accent)", display: "inline-flex" }}><Icon name="check" size={12} /></span>{source || "Lead parsed"}</>
