@@ -487,7 +487,7 @@ function parse(text, meta = {}) {
   if (!name && lines.length === 1) {
     // Strict single-line gate: the bare-name fallback may only fire when the entire
     // paste is one lone, name-shaped line that is not publisher/imprint/marketing text.
-    const junk = /@|\d|http|phone|address|property|book|publish|imprint|amazon|value|email|street|linkedin|website|skip|sign|cart|account|menu|search|deliver|return|order|deal|customer|review|department|hello|select|content|main|home|gift|prime|wish|follow|share|\bbuy\b|price|stock|seller|ship|format|edition|paperback|hardcover|kindle|audible|rating|star|barnes|noble|\bby\b/i;
+    const junk = /@|\d|http|\bphones?\b|\baddress(?:es)?\b|\bproperty\b|\bbooks?\b|\bpublish(?:ing|ed|er|ers)?\b|\bimprints?\b|\bamazon\b|\bvalues?\b|\bemails?\b|\bstreets?\b|\blinkedin\b|\bwebsites?\b|\bskip\b|\bsign\b|\bcarts?\b|\baccounts?\b|\bmenus?\b|\bsearch\b|\bdeliver(?:y|ies|ed)?\b|\breturns?\b|\borders?\b|\bdeals?\b|\bcustomers?\b|\breviews?\b|\bdepartments?\b|\bhello\b|\bselect\b|\bcontents?\b|\bmain\b|\bhome\b|\bgifts?\b|\bprime\b|\bwish\b|\bfollow(?:ing|ers?|s)?\b|\bshares?\b|\bbuy\b|\bstocks?\b|\bsellers?\b|\bship(?:ping|ments?|s)?\b|\bformats?\b|\beditions?\b|\bpaperbacks?\b|\bhardcovers?\b|\bkindle\b|\baudible\b|\brat(?:e|ed|es|ing|ings)?\b|\bstars?\b|\bby\b/i;
     const notPerson = /\b(press|media|publishing|publications|publisher|imprint|editions?|books?|studios?|productions?|group|company|enterprises|collective|author|sellers?|selling|bestseller|rated|featured|sponsored)\b/i;
     const nameRe = /^[A-ZÀ-ÖØ-öø-ÿĀ-ſ][A-Za-zÀ-ÖØ-öø-ÿĀ-ſ'’.\-]*(?:\s+[A-ZÀ-ÖØ-öø-ÿĀ-ſ][A-Za-zÀ-ÖØ-öø-ÿĀ-ſ'’.\-]*){1,2}(?:\s+(?:Jr|Sr|II|III|IV|PhD|MD|DDS|Esq)\.?)?$/;
     const one = lines[0];
@@ -629,7 +629,7 @@ const SECTIONS = [
 ];
 const FIELDS = ["firstName", "lastName", "email", "phone", "otherPhone", "address", "propertyValue", "bookTitle", "imprint", "datePublished", "amazon", "website", "linkedin"];
 const SOURCES = ["Amazon", "TruePeopleSearch", "Canada411", "WhitePages", "Barnes & Noble", "Goodreads"];
-const VERSION = "1.1.2"; // display only — bump this string as you release; not tied to any logic
+const VERSION = "1.1.3"; // display only — bump this string as you release; not tied to any logic
 // Read-only source classifier for UI feedback. Sniffs the raw paste for site signals to show a
 // "Detected Source" badge. It does NOT feed parse()/extraction in any way — purely a confidence cue.
 function detectSource(text) {
