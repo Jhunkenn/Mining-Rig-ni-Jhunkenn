@@ -629,7 +629,7 @@ const SECTIONS = [
 ];
 const FIELDS = ["firstName", "lastName", "email", "phone", "otherPhone", "address", "propertyValue", "bookTitle", "imprint", "datePublished", "amazon", "website", "linkedin"];
 const SOURCES = ["Amazon", "TruePeopleSearch", "Canada411", "WhitePages", "Barnes & Noble", "Goodreads"];
-const VERSION = "1.1.1"; // display only — bump this string as you release; not tied to any logic
+const VERSION = "1.1.2"; // display only — bump this string as you release; not tied to any logic
 // Read-only source classifier for UI feedback. Sniffs the raw paste for site signals to show a
 // "Detected Source" badge. It does NOT feed parse()/extraction in any way — purely a confidence cue.
 function detectSource(text) {
@@ -1084,7 +1084,6 @@ export default function App() {
           <div className="lbl" style={{ color: "var(--ink-soft)", marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <span>Paste Raw Search Data</span>
             <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ opacity: .65 }}>{raw ? raw.length.toLocaleString() + " chars" : ""}</span>
               <span ref={chkRef} onMouseEnter={openChk} onMouseLeave={scheduleCloseChk} style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
                 <span
                   title={checkerHover}
