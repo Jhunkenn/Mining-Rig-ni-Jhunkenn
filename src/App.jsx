@@ -5,7 +5,7 @@ import React, { useState, useMemo, useEffect, useRef } from "react";
 // Source of truth = a shared Google Sheet published as CSV. Nothing here touches the
 // parser, the 16-cell output, Copy Row/Column, overrides, or the override safeguard.
 // ====================================================================================
-const EXCLUSION_LIBRARY_CSV_URL = "TODO_ADD_PUBLISHED_CSV_URL = https://docs.google.com/spreadsheets/d/e/2PACX-1vSkIYeA4UIOWgQeUYSqOUlujOuJEh_-N1WQPmX8Nj0DwYGfqdqxXIBZfiNRFRRbTKKWgkLryrXbLdH5/pub?gid=1923631834&single=true&output=csv"; // <- paste the published-CSV URL here to activate
+const EXCLUSION_LIBRARY_CSV_URL = "TODO_ADD_PUBLISHED_CSV_URL"; // <- paste the published-CSV URL here to activate
 const CHECKER_TTL_MS = 10 * 60 * 1000; // refresh window: 10 minutes
 const CHECKER_CACHE_KEY = "mra_checker_library_v1";
 
@@ -783,8 +783,9 @@ export default function App() {
   const fetchLibrary = () => {
     if (!checkerConfigured) return;
     if (libFetchedRef.current === 0) setLibStatus("loading");
-    const url = EXCLUSION_LIBRARY_CSV_URL + (EXCLUSION_LIBRARY_CSV_URL.includes("?") ? "&" : "?") + "_=" + Date.now();
-    fetch(url, { cache: "no-store" })
+    // fetch the published CSV URL as-is — no cache-buster param (Google's /pub endpoint 404s on an
+    // unknown trailing query param). cache:"no-store" already prevents browser HTTP caching.
+    fetch(EXCLUSION_LIBRARY_CSV_URL, { cache: "no-store" })
       .then((r) => { if (!r.ok) throw new Error("http " + r.status); return r.text(); })
       .then((text) => {
         const rows = parseCSV(text); const now = Date.now();
