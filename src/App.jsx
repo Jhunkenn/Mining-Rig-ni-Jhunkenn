@@ -5,7 +5,7 @@ import React, { useState, useMemo, useEffect, useRef } from "react";
 // Source of truth = a shared Google Sheet published as CSV. Nothing here touches the
 // parser, the 16-cell output, Copy Row/Column, overrides, or the override safeguard.
 // ====================================================================================
-const EXCLUSION_LIBRARY_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSkIYeA4UIOWgQeUYSqOUlujOuJEh_-N1WQPmX8Nj0DwYGfqdqxXIBZfiNRFRRbTKKWgkLryrXbLdH5/pub?gid=1923631834&single=true&output=csv"; // <- paste the published-CSV URL here to activate 
+const EXCLUSION_LIBRARY_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSkIYeA4UIOWgQeUYSqOUlujOuJEh_-N1WQPmX8Nj0DwYGfqdqxXIBZfiNRFRRbTKKWgkLryrXbLdH5/pub?gid=1923631834&single=true&output=csv"; // <- paste the published-CSV URL here to activate
 const CHECKER_TTL_MS = 10 * 60 * 1000; // refresh window: 10 minutes
 const CHECKER_CACHE_KEY = "mra_checker_library_v1";
 
@@ -780,6 +780,8 @@ export default function App() {
   const library = useMemo(() => buildLibrary(libRows), [libRows]);
   const matches = useMemo(() => (checkerConfigured && hasData ? checkLibrary(erec, library) : []), [checkerConfigured, hasData, erec, library]);
   const imprintFlagged = matches.some((m) => m.type === "imprint");
+  const [flagsOpen, setFlagsOpen] = useState(false); // multi-match detail popover (click-to-reveal)
+  useEffect(() => { setFlagsOpen(false); }, [erec, matches.length]); // close when lead/library changes
   const fetchLibrary = () => {
     if (!checkerConfigured) return;
     if (libFetchedRef.current === 0) setLibStatus("loading");
@@ -1156,17 +1158,6 @@ export default function App() {
             </div>
           </div>
 
-
-          {matches.length > 0 && (
-            <div role="status" aria-live="polite" style={{ marginBottom: 12, border: "1px solid var(--accent)", background: "color-mix(in srgb, var(--accent) 10%, transparent)", borderRadius: 10, padding: "10px 12px" }}>
-              <div style={{ fontSize: 12, fontWeight: 800, color: "var(--accent)", marginBottom: 6, letterSpacing: .2 }}>⚠ Flagged by Checker Library</div>
-              {matches.map((m, i) => (
-                <div key={i} style={{ fontSize: 11.5, color: "var(--ink)", lineHeight: 1.5 }}>
-                  Banned {m.type}: <strong>"{m.value}"</strong>{m.notes ? " — " + m.notes : ""}
-                </div>
-              ))}
-            </div>
-          )}
           <div style={{ color: "var(--ink-soft)", fontSize: 11, marginBottom: 12, lineHeight: 1.5 }}>
             Spreadsheet Tip: Paste copied rows starting in Column B (Name column) to maintain proper alignment.
           </div>
@@ -1180,7 +1171,37 @@ export default function App() {
                   <div style={{ display: "flex", alignItems: "center", gap: 13, marginBottom: 15 }}>
                     <div className="avatar">{initials}</div>
                     <div style={{ minWidth: 0, flex: 1 }}>
-                      <div style={{ fontSize: 22, fontWeight: 800, color: "var(--note-ink)", lineHeight: 1.12, letterSpacing: -.3, wordBreak: "break-word" }}>{fullName || "Unnamed Lead"}</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "nowrap", minWidth: 0 }}>
+                        <div style={{ fontSize: 22, fontWeight: 800, color: "var(--note-ink)", lineHeight: 1.12, letterSpacing: -.3, wordBreak: "break-word", minWidth: 0 }}>{fullName || "Unnamed Lead"}</div>
+                        {matches.length > 0 && (
+                          <span style={{ position: "relative", flex: "0 0 auto" }}>
+                            <span
+                              title={matches.length === 1
+                                ? (matches[0].type === "imprint" ? "Imprint" : "Keyword") + ": " + matches[0].value + (matches[0].notes ? " — " + matches[0].notes : "")
+                                : matches.map((m) => (m.type === "imprint" ? "Imprint" : "Keyword") + ": " + m.value + (m.notes ? " — " + m.notes : "")).join("  •  ")}
+                              onClick={matches.length > 1 ? () => setFlagsOpen((o) => !o) : undefined}
+                              style={{ display: "inline-flex", alignItems: "center", gap: 4, maxWidth: 240, background: "var(--accent)", color: "#fff", fontWeight: 800, fontSize: 11, letterSpacing: .3, padding: "3px 9px", borderRadius: 999, lineHeight: 1.35, whiteSpace: "nowrap", cursor: matches.length > 1 ? "pointer" : "default", userSelect: "none" }}>
+                              {matches.length === 1 ? (
+                                <>
+                                  <span style={{ flex: "0 0 auto" }}>{matches[0].type === "imprint" ? "🚫" : "⚠"}</span>
+                                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{(matches[0].value || "").toUpperCase()}</span>
+                                </>
+                              ) : (
+                                <span style={{ whiteSpace: "nowrap" }}>⚠ {matches.length} FLAGS</span>
+                              )}
+                            </span>
+                            {matches.length > 1 && flagsOpen && (
+                              <div style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 30, minWidth: 220, maxWidth: 340, background: "#ffffff", border: "1px solid var(--accent)", borderRadius: 10, padding: "8px 11px", boxShadow: "0 8px 24px rgba(0,0,0,.16)" }}>
+                                {matches.map((m, i) => (
+                                  <div key={i} style={{ fontSize: 11.5, color: "var(--note-ink)", lineHeight: 1.55, wordBreak: "break-word" }}>
+                                    <strong>{m.type === "imprint" ? "Imprint" : "Keyword"}:</strong> {m.value}{m.notes ? " — " + m.notes : ""}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </span>
+                        )}
+                      </div>
                       <div style={{ marginTop: 7 }}>
                         <div key={populated} className="chip fin" style={{ color: "var(--note-link)", background: "color-mix(in srgb, var(--note-link) 14%, transparent)" }}>
                           <Icon name="check" size={12} className="ck" />
