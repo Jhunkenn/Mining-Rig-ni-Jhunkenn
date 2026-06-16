@@ -1,5 +1,87 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 
+// ====================================================================================
+// Exclusion Library (Checker) — Phase 1: keyword + imprint only. READ-ONLY OVERLAY.
+// Source of truth = a shared Google Sheet published as CSV. Nothing here touches the
+// parser, the 16-cell output, Copy Row/Column, overrides, or the override safeguard.
+// ====================================================================================
+const EXCLUSION_LIBRARY_CSV_URL = "TODO_ADD_PUBLISHED_CSV_URL"; // <- paste the published-CSV URL here to activate
+const CHECKER_TTL_MS = 10 * 60 * 1000; // refresh window: 10 minutes
+const CHECKER_CACHE_KEY = "mra_checker_library_v1";
+
+// Minimal RFC-4180 CSV reader: handles quoted fields, embedded commas/newlines, and "" escapes.
+// (split(",") is unsafe because Value/Notes can contain commas.)
+function parseCSV(text) {
+  const s = String(text || "").replace(/\r\n?/g, "\n");
+  const rows = []; let row = [], field = "", inQ = false;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (inQ) {
+      if (c === '"') { if (s[i + 1] === '"') { field += '"'; i++; } else inQ = false; }
+      else field += c;
+    } else if (c === '"') { inQ = true; }
+    else if (c === ",") { row.push(field); field = ""; }
+    else if (c === "\n") { row.push(field); rows.push(row); row = []; field = ""; }
+    else field += c;
+  }
+  if (field.length > 0 || row.length > 0) { row.push(field); rows.push(row); }
+  return rows;
+}
+
+// Shared normalizer for BOTH sheet values and extracted values, so the two sides always match:
+// straighten curly quotes -> trim -> collapse internal whitespace -> lowercase.
+const normValue = (s) => (s == null ? "" : String(s))
+  .replace(/[\u2018\u2019\u201B]/g, "'")
+  .replace(/[\u201C\u201D]/g, '"')
+  .trim().replace(/\s+/g, " ").toLowerCase();
+
+// Build the in-memory library from parsed rows. Skips header/blank/empty-Value/inactive rows and
+// unknown types. Imprints -> Map(normalized -> {value, notes}); keywords -> precompiled whole-word regexes.
+function buildLibrary(rows) {
+  const imprints = new Map();
+  const keywords = [];
+  const kwSeen = new Set();
+  for (const r of (rows || [])) {
+    if (!r) continue;
+    const type = normValue(r[0]);
+    if (!type || type === "type") continue;            // skip blanks + header row
+    const value = (r[1] == null ? "" : String(r[1])).trim();
+    if (!value) continue;                              // skip empty Value
+    if (normValue(r[3]) === "false") continue;         // only literal FALSE disables; blank = active
+    const notes = (r[2] == null ? "" : String(r[2])).trim();
+    const key = normValue(value);
+    if (type === "imprint") {
+      if (!imprints.has(key)) imprints.set(key, { value, notes });
+    } else if (type === "keyword") {
+      if (kwSeen.has(key)) continue;
+      kwSeen.add(key);
+      const esc = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      keywords.push({ re: new RegExp("(?<![a-z0-9])" + esc + "(?![a-z0-9])", "i"), value, notes });
+    }
+    // any other Type is ignored (Phase 1 supports only keyword + imprint)
+  }
+  return { imprints, keywords, entryCount: imprints.size + keywords.length };
+}
+
+// Pure matcher over the EFFECTIVE (post-override) record. Returns a list of matches.
+//  - imprint: exact normalized match against the extracted Imprint field ONLY.
+//  - keyword: case-insensitive whole-word/phrase match against Book Title + Imprint ONLY
+//    (no raw text, no URLs/phones/emails/numeric fields).
+function checkLibrary(erec, library) {
+  const out = [];
+  if (!erec || !library) return out;
+  const impNorm = normValue(erec.imprint);
+  if (impNorm && library.imprints.has(impNorm)) {
+    const e = library.imprints.get(impNorm);
+    out.push({ type: "imprint", value: e.value, notes: e.notes });
+  }
+  const hay = normValue([erec.bookTitle, erec.imprint].filter(Boolean).join("\n"));
+  if (hay) for (const k of library.keywords) {
+    if (k.re.test(hay)) out.push({ type: "keyword", value: k.value, notes: k.notes });
+  }
+  return out;
+}
+
 // ---- phone extraction + filtering rules ----
 function extractPhones(text) {
   // strict: requires real phone formatting (parens or separators) so bare ISBN/ASIN digit runs don't match
@@ -688,6 +770,50 @@ export default function App() {
   const tier = completeness >= 90 ? "Comprehensive" : completeness >= 70 ? "Detailed" : completeness >= 40 ? "Moderate" : "Limited";
   const fullName = [erec.firstName, erec.lastName].filter(Boolean).join(" ").trim();
   const initials = ((rec.firstName?.[0] || "") + (rec.lastName?.[0] || "")).toUpperCase() || "—";
+
+  // ---- Exclusion Library (Checker): read-only overlay state ----
+  const checkerConfigured = !!EXCLUSION_LIBRARY_CSV_URL && EXCLUSION_LIBRARY_CSV_URL !== "TODO_ADD_PUBLISHED_CSV_URL";
+  const [libRows, setLibRows] = useState(null);          // cached parsed CSV rows
+  const [libFetchedAt, setLibFetchedAt] = useState(0);   // for the freshness label
+  const [libStatus, setLibStatus] = useState(checkerConfigured ? "idle" : "unconfigured"); // idle|loading|fresh|stale|unavailable|unconfigured
+  const libFetchedRef = useRef(0);                        // age/presence source of truth (closure-safe)
+  const library = useMemo(() => buildLibrary(libRows), [libRows]);
+  const matches = useMemo(() => (checkerConfigured && hasData ? checkLibrary(erec, library) : []), [checkerConfigured, hasData, erec, library]);
+  const imprintFlagged = matches.some((m) => m.type === "imprint");
+  const fetchLibrary = () => {
+    if (!checkerConfigured) return;
+    if (libFetchedRef.current === 0) setLibStatus("loading");
+    const url = EXCLUSION_LIBRARY_CSV_URL + (EXCLUSION_LIBRARY_CSV_URL.includes("?") ? "&" : "?") + "_=" + Date.now();
+    fetch(url, { cache: "no-store" })
+      .then((r) => { if (!r.ok) throw new Error("http " + r.status); return r.text(); })
+      .then((text) => {
+        const rows = parseCSV(text); const now = Date.now();
+        setLibRows(rows); setLibFetchedAt(now); libFetchedRef.current = now; setLibStatus("fresh");
+        try { localStorage.setItem(CHECKER_CACHE_KEY, JSON.stringify({ fetchedAt: now, rows })); } catch {}
+      })
+      .catch(() => { setLibStatus(libFetchedRef.current ? "stale" : "unavailable"); });
+  };
+  useEffect(() => {
+    if (!checkerConfigured) return;
+    let cached = null;
+    try { cached = JSON.parse(localStorage.getItem(CHECKER_CACHE_KEY) || "null"); } catch {}
+    if (cached && Array.isArray(cached.rows)) {
+      const at = cached.fetchedAt || 0;
+      setLibRows(cached.rows); setLibFetchedAt(at); libFetchedRef.current = at;
+      setLibStatus(Date.now() - at < CHECKER_TTL_MS ? "fresh" : "stale");
+    }
+    if (!(cached && Date.now() - (cached.fetchedAt || 0) < CHECKER_TTL_MS)) fetchLibrary();
+    const id = setInterval(() => { if (Date.now() - libFetchedRef.current >= CHECKER_TTL_MS) fetchLibrary(); }, 60 * 1000);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const libAgeMin = libFetchedAt ? Math.max(0, Math.round((Date.now() - libFetchedAt) / 60000)) : null;
+  const checkerLabel = !checkerConfigured ? "Checker: off"
+    : libStatus === "loading" ? "Checker: loading…"
+    : libStatus === "unavailable" ? "Checker: unavailable"
+    : "Checker: " + library.entryCount + (library.entryCount === 1 ? " entry" : " entries")
+      + (libStatus === "stale" ? " · stale" : libAgeMin != null ? " · " + (libAgeMin === 0 ? "just now" : libAgeMin + "m ago") : "");
+
   const fmt = (n) => n.toLocaleString();
   const successRate = stats.leads ? Math.round((stats.ready / stats.leads) * 100) : null;
 
@@ -938,6 +1064,10 @@ export default function App() {
             <span>Paste Raw Search Data</span>
             <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <span style={{ opacity: .65 }}>{raw ? raw.length.toLocaleString() + " chars" : ""}</span>
+              <span title="Exclusion Library status" style={{ fontSize: 10.5, display: "inline-flex", alignItems: "center", gap: 4, color: (libStatus === "stale" || libStatus === "unavailable") ? "var(--accent)" : "var(--ink-soft)", opacity: .8 }}>
+                {checkerLabel}
+                {checkerConfigured && <button className="btn gho" style={{ fontSize: 10, padding: "2px 6px", borderRadius: 7, lineHeight: 1 }} onClick={fetchLibrary} disabled={libStatus === "loading"} title="Refresh Checker Library">⟳</button>}
+              </span>
               <button className="btn gho" style={{ fontSize: 11.5, padding: "5px 12px", borderRadius: 9 }} onClick={clearAll} disabled={!canClear}>Clear</button>
               <button className="btn gho" style={{ fontSize: 11.5, padding: "5px 12px", borderRadius: 9, display: "inline-flex", alignItems: "center", gap: 5 }} onClick={() => setOvOpen((v) => !v)} aria-expanded={ovOpen} title="Manual override fields">
                 Overrides
@@ -1025,6 +1155,17 @@ export default function App() {
             </div>
           </div>
 
+
+          {matches.length > 0 && (
+            <div role="status" aria-live="polite" style={{ marginBottom: 12, border: "1px solid var(--accent)", background: "color-mix(in srgb, var(--accent) 10%, transparent)", borderRadius: 10, padding: "10px 12px" }}>
+              <div style={{ fontSize: 12, fontWeight: 800, color: "var(--accent)", marginBottom: 6, letterSpacing: .2 }}>⚠ Flagged by Checker Library</div>
+              {matches.map((m, i) => (
+                <div key={i} style={{ fontSize: 11.5, color: "var(--ink)", lineHeight: 1.5 }}>
+                  Banned {m.type}: <strong>"{m.value}"</strong>{m.notes ? " — " + m.notes : ""}
+                </div>
+              ))}
+            </div>
+          )}
           <div style={{ color: "var(--ink-soft)", fontSize: 11, marginBottom: 12, lineHeight: 1.5 }}>
             Spreadsheet Tip: Paste copied rows starting in Column B (Name column) to maintain proper alignment.
           </div>
@@ -1068,8 +1209,9 @@ export default function App() {
                       {sec.fields.map((f) => {
                         const v = fieldVal(f.key);
                         const isPhone = f.key === "phone" || f.key === "otherPhone";
+                        const flagged = f.key === "imprint" && imprintFlagged;
                         return (
-                          <div className="frow" key={f.key}>
+                          <div className="frow" key={f.key} style={flagged ? { background: "color-mix(in srgb, var(--accent) 9%, transparent)", borderRadius: 8 } : undefined}>
                             <span className="fico"><Icon name={f.icon} size={14} /></span>
                             <div style={{ minWidth: 0, flex: 1 }}>
                               <div className="lbl" style={{ color: "var(--note-label)", marginBottom: 1, fontSize: 8.5, opacity: .85 }}>{f.label}</div>
@@ -1077,7 +1219,7 @@ export default function App() {
                                 f.link ? (
                                   <a href={v} target="_blank" rel="noreferrer" className="mono" style={{ fontSize: 11.5, color: "var(--note-link)", wordBreak: "break-all", textDecoration: "none" }}>{v}</a>
                                 ) : (
-                                  <div className={isPhone ? "mono" : ""} style={{ fontSize: isPhone ? 12.5 : 13.5, color: "var(--note-ink)", fontWeight: 500, whiteSpace: "pre-wrap", lineHeight: 1.4, wordBreak: "break-word" }}>{v}</div>
+                                  <div className={isPhone ? "mono" : ""} style={{ fontSize: isPhone ? 12.5 : 13.5, color: flagged ? "var(--accent)" : "var(--note-ink)", fontWeight: flagged ? 700 : 500, whiteSpace: "pre-wrap", lineHeight: 1.4, wordBreak: "break-word" }}>{v}</div>
                                 )
                               ) : (
                                 <div style={{ fontSize: 12.5, color: "var(--note-muted)" }}>—</div>
