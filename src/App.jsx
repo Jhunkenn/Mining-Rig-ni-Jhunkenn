@@ -5,7 +5,7 @@ import React, { useState, useMemo, useEffect, useRef } from "react";
 // Source of truth = a shared Google Sheet published as CSV. Nothing here touches the
 // parser, the 16-cell output, Copy Row/Column, overrides, or the override safeguard.
 // ====================================================================================
-const EXCLUSION_LIBRARY_CSV_URL = "TODO_ADD_PUBLISHED_CSV_URL"; // <- paste the published-CSV URL here to activate
+const EXCLUSION_LIBRARY_CSV_URL = "TODO_ADD_PUBLISHED_CSV_URL = https://docs.google.com/spreadsheets/d/e/2PACX-1vSkIYeA4UIOWgQeUYSqOUlujOuJEh_-N1WQPmX8Nj0DwYGfqdqxXIBZfiNRFRRbTKKWgkLryrXbLdH5/pub?gid=1923631834&single=true&output=csv"; // <- paste the published-CSV URL here to activate
 const CHECKER_TTL_MS = 10 * 60 * 1000; // refresh window: 10 minutes
 const CHECKER_CACHE_KEY = "mra_checker_library_v1";
 
