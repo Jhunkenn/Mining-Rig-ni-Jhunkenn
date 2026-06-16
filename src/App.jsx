@@ -629,7 +629,7 @@ const SECTIONS = [
 ];
 const FIELDS = ["firstName", "lastName", "email", "phone", "otherPhone", "address", "propertyValue", "bookTitle", "imprint", "datePublished", "amazon", "website", "linkedin"];
 const SOURCES = ["Amazon", "TruePeopleSearch", "Canada411", "WhitePages", "Barnes & Noble", "Goodreads"];
-const VERSION = "0.9.0"; // display only — bump this string as you release; not tied to any logic
+const VERSION = "1.1.1"; // display only — bump this string as you release; not tied to any logic
 // Read-only source classifier for UI feedback. Sniffs the raw paste for site signals to show a
 // "Detected Source" badge. It does NOT feed parse()/extraction in any way — purely a confidence cue.
 function detectSource(text) {
@@ -777,6 +777,8 @@ export default function App() {
   const [libFetchedAt, setLibFetchedAt] = useState(0);   // for the freshness label
   const [libStatus, setLibStatus] = useState(checkerConfigured ? "idle" : "unconfigured"); // idle|loading|fresh|stale|unavailable|unconfigured
   const libFetchedRef = useRef(0);                        // age/presence source of truth (closure-safe)
+  const chkTimerRef = useRef(null);                       // hover-intent close timer for the status popover
+  const chkRef = useRef(null);                            // wrapper (trigger + popover) for outside-click detection
   const library = useMemo(() => buildLibrary(libRows), [libRows]);
   const matches = useMemo(() => (checkerConfigured && hasData ? checkLibrary(erec, library) : []), [checkerConfigured, hasData, erec, library]);
   const imprintFlagged = matches.some((m) => m.type === "imprint");
@@ -822,6 +824,16 @@ export default function App() {
     : { icon: "✓", label: "Online", tone: "#1faa6b" };
   const checkerHover = "Library Checker · Status: " + checkerState.label
     + (checkerConfigured && libStatus !== "loading" ? " · Updated: " + checkerAgeText + " · " + library.entryCount + (library.entryCount === 1 ? " entry" : " entries") + " loaded" : "");
+  // hover-intent popover: open on enter, stay while hovering trigger OR popover, close 400ms after leaving both
+  const openChk = () => { if (chkTimerRef.current) { clearTimeout(chkTimerRef.current); chkTimerRef.current = null; } setChkOpen(true); };
+  const scheduleCloseChk = () => { if (chkTimerRef.current) clearTimeout(chkTimerRef.current); chkTimerRef.current = setTimeout(() => setChkOpen(false), 400); };
+  useEffect(() => {
+    if (!chkOpen) return;
+    const onDocDown = (e) => { if (chkRef.current && !chkRef.current.contains(e.target)) { if (chkTimerRef.current) clearTimeout(chkTimerRef.current); setChkOpen(false); } };
+    document.addEventListener("mousedown", onDocDown);
+    return () => document.removeEventListener("mousedown", onDocDown);
+  }, [chkOpen]);
+  useEffect(() => () => { if (chkTimerRef.current) clearTimeout(chkTimerRef.current); }, []); // clear timer on unmount
 
   const fmt = (n) => n.toLocaleString();
   const successRate = stats.leads ? Math.round((stats.ready / stats.leads) * 100) : null;
@@ -1073,11 +1085,10 @@ export default function App() {
             <span>Paste Raw Search Data</span>
             <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <span style={{ opacity: .65 }}>{raw ? raw.length.toLocaleString() + " chars" : ""}</span>
-              <span style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
+              <span ref={chkRef} onMouseEnter={openChk} onMouseLeave={scheduleCloseChk} style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
                 <span
-                  onClick={() => setChkOpen((o) => !o)}
                   title={checkerHover}
-                  style={{ fontSize: 11, display: "inline-flex", alignItems: "center", gap: 4, color: checkerState.tone, opacity: .9, cursor: "pointer", userSelect: "none", fontWeight: 600 }}>
+                  style={{ fontSize: 11, display: "inline-flex", alignItems: "center", gap: 4, color: checkerState.tone, opacity: .9, cursor: "default", userSelect: "none", fontWeight: 600 }}>
                   <span style={{ flex: "0 0 auto" }}>{checkerState.icon}</span>Checker
                 </span>
                 {chkOpen && (
