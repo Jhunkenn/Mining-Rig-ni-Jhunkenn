@@ -632,7 +632,7 @@ const SECTIONS = [
 const FIELDS = ["firstName", "lastName", "email", "phone", "otherPhone", "address", "propertyValue", "bookTitle", "imprint", "datePublished", "amazon", "website", "linkedin"];
 const SOURCES = ["Amazon", "TruePeopleSearch", "Canada411", "WhitePages", "Barnes & Noble", "Goodreads"];
 const SRC_ABBR = { TruePeopleSearch: "TPS", FastBackgroundCheck: "FBC", "Barnes & Noble": "B&N" }; // compact labels for the merged indicator
-const VERSION = "1.1.5"; // display only — bump this string as you release; not tied to any logic
+const VERSION = "1.1.6"; // display only — bump this string as you release; not tied to any logic
 // Read-only source classifier for UI feedback. Sniffs the raw paste for site signals to show a
 // "Detected Source" badge. It does NOT feed parse()/extraction in any way — purely a confidence cue.
 function detectSource(text) {
@@ -1007,9 +1007,6 @@ export default function App() {
     .ws-divider { flex:0 0 auto; width:11px; align-self:stretch; cursor:col-resize; position:relative; touch-action:none; }
     .ws-divider::before { content:""; position:absolute; top:6px; bottom:6px; left:4px; right:4px; border-radius:6px; background: var(--line); opacity:.55; transition: opacity .15s, background-color .15s; }
     .ws-divider:hover::before, .ws-divider:active::before { opacity:1; background: var(--accent); }
-    .statpill { display:inline-flex; align-items:center; gap:7px; font-size:11.5px; font-weight:600; padding:6px 11px; border-radius:99px; border:1px solid var(--line); background:var(--field); color:var(--ink-soft); white-space:nowrap; }
-    .statpill.live { color:var(--ink); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
-    .statdot { width:8px; height:8px; border-radius:50%; flex:0 0 auto; }
     .ovsug { align-self:flex-start; background:transparent; border:0; padding:1px 3px; margin:0; font-size:11px; line-height:1.3; color:var(--ink-soft); opacity:.7; cursor:pointer; }
     .ovsug:hover { opacity:1; text-decoration:underline; }
     @media (max-width: 760px) {
@@ -1187,13 +1184,6 @@ export default function App() {
               {copied === "col" ? <><Icon name="check" size={15} />Copied</> : "⧉ Column"}
             </button>
             {modeMsg && <span aria-live="polite" style={{ fontSize: 11, color: "var(--ink-soft)", opacity: .85 }}>{modeMsg}</span>}
-            <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
-              <span className={"statpill" + (hasData ? " live" : "")}>
-                {hasData
-                  ? <><span style={{ color: "var(--accent)", display: "inline-flex" }}><Icon name="check" size={12} /></span>Lead parsed</>
-                  : <><span className="statdot" style={{ background: "#1faa6b" }} />Ready for Extraction</>}
-              </span>
-            </div>
           </div>
 
           <div style={{ color: "var(--ink-soft)", fontSize: 11, marginBottom: 12, lineHeight: 1.5 }}>
