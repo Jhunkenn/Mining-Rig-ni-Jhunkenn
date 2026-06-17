@@ -160,9 +160,9 @@ function authorName(text) {
   const afterParen = text.match(/\(\s*authors?\s*\)\s*[:：]\s*(["“]?[A-ZÀ-ÖØ-öø-ÿĀ-ſ][A-Za-zÀ-ÖØ-öø-ÿĀ-ſ'’"“”.\-]*(?:[ \t]+["“]?[A-ZÀ-ÖØ-öø-ÿĀ-ſ][A-Za-zÀ-ÖØ-öø-ÿĀ-ſ'’"“”.\-]*){0,2}(?:[ \t]+(?:Jr|Sr|II|III|IV|PhD|MD|DDS|Esq)\.?)?)/i);
   if (afterParen && personOK(afterParen[1], 1)) return clean(afterParen[1]);
   // 2) "by NAME" — but not "sold by", "shipped by", "published by", etc.
-  const badBefore = /(sold|ship|ships|shipped|fulfil|fulfill|fulfilled|dispatch|dispatched|publish|published|distribute|distributed|market|marketed|power|powered|deliver|delivered|import|imported|present|presented|narrate|narrated|illustrate|illustrated|edit|edited|translate|translated|produce|produced|gone|goes|known)$/i;
+  const badBefore = /(sold|ship|ships|shipped|fulfil|fulfill|fulfilled|dispatch|dispatched|publish|published|distribute|distributed|market|marketed|power|powered|deliver|delivered|import|imported|present|presented|narrate|narrated|illustrate|illustrated|edit|edited|translate|translated|produce|produced|gone|goes|known|defined|governed|regulated|covered|provided|maintained|operated|owned|protected)$/i;
   // skip promotional/navigation phrases that happen to follow "by" (e.g. "Delivery by Father's Day") and keep scanning for a real byline
-  const navReject = /\b(day|sale|deal|promotion|customer|service|guidelines|categories|best sellers|new releases|gift cards)\b/i;
+  const navReject = /\b(day|sale|deal|promotion|customer|service|guidelines|categories|best sellers|new releases|gift cards|fair credit|fcra|people search|public records?|whitepages|spokeo|beenverified)\b/i;
   const re = /\bby[ \t]+(["“]?[A-ZÀ-ÖØ-öø-ÿĀ-ſ][A-Za-zÀ-ÖØ-öø-ÿĀ-ſ'’"“”.\-]*(?:[ \t]+["“]?[A-ZÀ-ÖØ-öø-ÿĀ-ſ][A-Za-zÀ-ÖØ-öø-ÿĀ-ſ'’"“”.\-]*){1,2}(?:[ \t]+(?:Jr|Sr|II|III|IV|PhD|MD|DDS|Esq)\.?)?)/gi;
   let m;
   while ((m = re.exec(text))) {
@@ -464,7 +464,9 @@ function parse(text, meta = {}) {
     for (const l of lines) { const m = l.match(titleRe); if (m) { name = m[1]; break; } }
     if (!name) { const m = T.match(fullRe); if (m) name = m[1].trim(); }
   }
-  if (!name) name = authorName(T);
+  // authorName is a book-byline extractor; never run it on people-search pages, where the only "by ..."
+  // phrases are legal/attribution footers (FCRA, "provided by ...") that would pre-empt the real lead name.
+  if (!name && !/^(TruePeopleSearch|WhitePages|Canada411|FastBackgroundCheck)$/.test(detectSource(T))) name = authorName(T);
   // Never read names out of relative / background sections — those list family, not the lead.
   const RELATIVES = /(background\s+profile|public\s+records?\s+report|possible\s+relatives?|^relatives?\b|associated\s+(?:persons?|names?)|known\s+associates?)/i;
   const relIdx = lines.findIndex((l) => RELATIVES.test(l));
@@ -629,7 +631,8 @@ const SECTIONS = [
 ];
 const FIELDS = ["firstName", "lastName", "email", "phone", "otherPhone", "address", "propertyValue", "bookTitle", "imprint", "datePublished", "amazon", "website", "linkedin"];
 const SOURCES = ["Amazon", "TruePeopleSearch", "Canada411", "WhitePages", "Barnes & Noble", "Goodreads"];
-const VERSION = "1.1.3"; // display only — bump this string as you release; not tied to any logic
+const SRC_ABBR = { TruePeopleSearch: "TPS", FastBackgroundCheck: "FBC", "Barnes & Noble": "B&N" }; // compact labels for the merged indicator
+const VERSION = "1.1.5"; // display only — bump this string as you release; not tied to any logic
 // Read-only source classifier for UI feedback. Sniffs the raw paste for site signals to show a
 // "Detected Source" badge. It does NOT feed parse()/extraction in any way — purely a confidence cue.
 function detectSource(text) {
@@ -823,7 +826,8 @@ export default function App() {
     : libStatus === "stale" ? { icon: "⚠", label: "Stale", tone: "var(--accent)" }
     : { icon: "✓", label: "Online", tone: "#1faa6b" };
   const checkerHover = "Library Checker · Status: " + checkerState.label
-    + (checkerConfigured && libStatus !== "loading" ? " · Updated: " + checkerAgeText + " · " + library.entryCount + (library.entryCount === 1 ? " entry" : " entries") + " loaded" : "");
+    + (checkerConfigured && libStatus !== "loading" ? " · Updated: " + checkerAgeText + " · " + library.entryCount + (library.entryCount === 1 ? " entry" : " entries") + " loaded" : "")
+    + (source ? " · Source: " + source : "");
   // hover-intent popover: open on enter, stay while hovering trigger OR popover, close 400ms after leaving both
   const openChk = () => { if (chkTimerRef.current) { clearTimeout(chkTimerRef.current); chkTimerRef.current = null; } setChkOpen(true); };
   const scheduleCloseChk = () => { if (chkTimerRef.current) clearTimeout(chkTimerRef.current); chkTimerRef.current = setTimeout(() => setChkOpen(false), 400); };
@@ -1088,7 +1092,7 @@ export default function App() {
                 <span
                   title={checkerHover}
                   style={{ fontSize: 11, display: "inline-flex", alignItems: "center", gap: 4, color: checkerState.tone, opacity: .9, cursor: "default", userSelect: "none", fontWeight: 600 }}>
-                  <span style={{ flex: "0 0 auto" }}>{checkerState.icon}</span>Checker
+                  <span style={{ flex: "0 0 auto" }}>{checkerState.icon}</span>{source ? (SRC_ABBR[source] || source) : "Checker"}
                 </span>
                 {chkOpen && (
                   <div style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 30, minWidth: 170, background: "#ffffff", border: "1px solid var(--note-line, #e2ddd0)", borderRadius: 10, padding: "9px 11px", boxShadow: "0 8px 24px rgba(0,0,0,.16)", textAlign: "left", cursor: "default" }}>
@@ -1097,6 +1101,7 @@ export default function App() {
                       <div>Status: <strong style={{ color: checkerState.tone }}>{checkerState.label}</strong></div>
                       {checkerConfigured && libStatus !== "loading" && <div>Updated: {checkerAgeText}</div>}
                       {checkerConfigured && libStatus !== "loading" && <div>Entries loaded: {library.entryCount}</div>}
+                      {source && <div>Source: <strong>{source}</strong></div>}
                     </div>
                     {checkerConfigured && (
                       <button className="btn gho" style={{ marginTop: 7, fontSize: 10.5, padding: "3px 9px", borderRadius: 7, lineHeight: 1 }} onClick={fetchLibrary} disabled={libStatus === "loading"} title="Refresh Checker Library">⟳ Refresh</button>
@@ -1185,7 +1190,7 @@ export default function App() {
             <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
               <span className={"statpill" + (hasData ? " live" : "")}>
                 {hasData
-                  ? <><span style={{ color: "var(--accent)", display: "inline-flex" }}><Icon name="check" size={12} /></span>{source || "Lead parsed"}</>
+                  ? <><span style={{ color: "var(--accent)", display: "inline-flex" }}><Icon name="check" size={12} /></span>Lead parsed</>
                   : <><span className="statdot" style={{ background: "#1faa6b" }} />Ready for Extraction</>}
               </span>
             </div>
@@ -1204,8 +1209,8 @@ export default function App() {
                   <div style={{ display: "flex", alignItems: "center", gap: 13, marginBottom: 15 }}>
                     <div className="avatar">{initials}</div>
                     <div style={{ minWidth: 0, flex: 1 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "nowrap", minWidth: 0 }}>
-                        <div style={{ fontSize: 22, fontWeight: 800, color: "var(--note-ink)", lineHeight: 1.12, letterSpacing: -.3, wordBreak: "break-word", minWidth: 0 }}>{fullName || "Unnamed Lead"}</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "nowrap", justifyContent: "space-between", minWidth: 0 }}>
+                        <div title={fullName || "Unnamed Lead"} style={{ fontSize: 22, fontWeight: 800, color: "var(--note-ink)", lineHeight: 1.12, letterSpacing: -.3, minWidth: 0, flex: "1 1 auto", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fullName || "Unnamed Lead"}</div>
                         {matches.length > 0 && (
                           <span style={{ position: "relative", flex: "0 0 auto" }}>
                             <span
