@@ -160,7 +160,7 @@ function authorName(text) {
   const afterParen = text.match(/\(\s*authors?\s*\)\s*[:：]\s*(["“]?[A-ZÀ-ÖØ-öø-ÿĀ-ſ][A-Za-zÀ-ÖØ-öø-ÿĀ-ſ'’"“”.\-]*(?:[ \t]+["“]?[A-ZÀ-ÖØ-öø-ÿĀ-ſ][A-Za-zÀ-ÖØ-öø-ÿĀ-ſ'’"“”.\-]*){0,2}(?:[ \t]+(?:Jr|Sr|II|III|IV|PhD|MD|DDS|Esq)\.?)?)/i);
   if (afterParen && personOK(afterParen[1], 1)) return clean(afterParen[1]);
   // 2) "by NAME" — but not "sold by", "shipped by", "published by", etc.
-  const badBefore = /(sold|ship|ships|shipped|fulfil|fulfill|fulfilled|dispatch|dispatched|publish|published|distribute|distributed|market|marketed|power|powered|deliver|delivered|import|imported|present|presented|narrate|narrated|illustrate|illustrated|edit|edited|translate|translated|produce|produced|gone|goes|known|defined|governed|regulated|covered|provided|maintained|operated|owned|protected)$/i;
+  const badBefore = /(sold|ship|ships|shipped|fulfil|fulfill|fulfilled|dispatch|dispatched|publish|published|distribute|distributed|market|marketed|power|powered|deliver|delivered|import|imported|present|presented|narrate|narrated|illustrate|illustrated|edit|edited|translate|translated|produce|produced|gone|goes|known|defined|governed|regulated|covered|provided|maintained|operated|owned|protected|posted|submitted|reviewed|reported|verified|contributed|liked|shared|followed|saved|added|listed)$/i;
   // skip promotional/navigation phrases that happen to follow "by" (e.g. "Delivery by Father's Day") and keep scanning for a real byline
   const navReject = /\b(day|sale|deal|promotion|customer|service|guidelines|categories|best sellers|new releases|gift cards|fair credit|fcra|people search|public records?|whitepages|spokeo|beenverified)\b/i;
   const re = /\bby[ \t]+(["“]?[A-ZÀ-ÖØ-öø-ÿĀ-ſ][A-Za-zÀ-ÖØ-öø-ÿĀ-ſ'’"“”.\-]*(?:[ \t]+["“]?[A-ZÀ-ÖØ-öø-ÿĀ-ſ][A-Za-zÀ-ÖØ-öø-ÿĀ-ſ'’"“”.\-]*){1,2}(?:[ \t]+(?:Jr|Sr|II|III|IV|PhD|MD|DDS|Esq)\.?)?)/gi;
@@ -464,9 +464,16 @@ function parse(text, meta = {}) {
     for (const l of lines) { const m = l.match(titleRe); if (m) { name = m[1]; break; } }
     if (!name) { const m = T.match(fullRe); if (m) name = m[1].trim(); }
   }
-  // authorName is a book-byline extractor; never run it on people-search pages, where the only "by ..."
-  // phrases are legal/attribution footers (FCRA, "provided by ...") that would pre-empt the real lead name.
-  if (!name && !/^(TruePeopleSearch|WhitePages|Canada411|FastBackgroundCheck)$/.test(detectSource(T))) name = authorName(T);
+  // authorName is a book-byline extractor; on pure people-search pages the only "by ..." phrases are
+  // legal/attribution footers, so it stays gated off there. BUT a mixed paste (book identity + people-search
+  // contact in one blob) is classified people-search by detectSource (search tools are sniffed first), which
+  // would wrongly skip the Amazon/book author. So run authorName when a book signal is present even if the
+  // detected source is people-search. (badBefore rejects stray "Posted by/Reviewed by" so a weak book signal
+  // on a pure people-search page can't let a non-author byline leak.)
+  const bookSignal = /\(\s*authors?\s*\)/i.test(T) || /\bASIN\b/.test(T) || /amazon\.[a-z]/i.test(T)
+    || /goodreads|barnesandnoble|barnes\s*&\s*noble/i.test(T) || /kindle\s+direct\s+publishing/i.test(T) || BOOK_RETAIL.test(T);
+  const isPeopleSearch = /^(TruePeopleSearch|WhitePages|Canada411|FastBackgroundCheck)$/.test(detectSource(T));
+  if (!name && (!isPeopleSearch || bookSignal)) name = authorName(T);
   // Never read names out of relative / background sections — those list family, not the lead.
   const RELATIVES = /(background\s+profile|public\s+records?\s+report|possible\s+relatives?|^relatives?\b|associated\s+(?:persons?|names?)|known\s+associates?)/i;
   const relIdx = lines.findIndex((l) => RELATIVES.test(l));
@@ -632,9 +639,9 @@ const SECTIONS = [
 const FIELDS = ["firstName", "lastName", "email", "phone", "otherPhone", "address", "propertyValue", "bookTitle", "imprint", "datePublished", "amazon", "website", "linkedin"];
 const SOURCES = ["Amazon", "TruePeopleSearch", "Canada411", "WhitePages", "Barnes & Noble", "Goodreads"];
 const SRC_ABBR = { TruePeopleSearch: "TPS", FastBackgroundCheck: "FBC", "Barnes & Noble": "B&N" }; // compact labels for the merged indicator
-const VERSION = "1.1.6"; // display only — bump this string as you release; not tied to any logic
-// Read-only source classifier for UI feedback. Sniffs the raw paste for site signals to show a
-// "Detected Source" badge. It does NOT feed parse()/extraction in any way — purely a confidence cue.
+const VERSION = "1.1.7"; // display only — bump this string as you release; not tied to any logic
+// Source classifier. Drives the "Detected Source" UI badge, and is also consulted by parse() for
+// source-aware name gating (a people-search classification keeps authorName off unless a book signal is present).
 function detectSource(text) {
   const t = text || "";
   if (/fastbackgroundcheck/i.test(t)) return "FastBackgroundCheck";
