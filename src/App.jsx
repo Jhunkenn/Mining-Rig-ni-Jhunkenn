@@ -338,7 +338,7 @@ function parse(text, meta = {}) {
   // Host-anchored ([./] before the brand, "." after) so brands can't match inside unrelated hostnames (e.g. "lulu" in "honolulu.com").
   const BOOK_RETAIL = /[\/.](?:goodreads|barnesandnoble|kobo|books\.apple|bookshop|booksamillion|audible|thriftbooks|abebooks|powells|waterstones|blackwells|lulu|ingramspark|smashwords|books2read|bookbaby|blurb|ebooks|indigo|indiebound)\./i;
   const linkedin = urls.find((u) => /linkedin\.com/i.test(u)) || "";
-  const amazon = urls.find((u) => /amazon\./i.test(u)) || urls.find((u) => BOOK_RETAIL.test(u)) || "";
+  // amazon URL is chosen after Book Title is known (ranked, not copy-order) — see below
   const website = urls.find((u) => !/linkedin\.com|amazon\./i.test(u) && !BOOK_RETAIL.test(u)) || "";
 
   // Property Value — Property Value / Estimated Value / Estimated Equity, whichever appears first
@@ -372,6 +372,9 @@ function parse(text, meta = {}) {
   let bookTitle = pickBookTitle(lines);
   // strip a known retail format marker only when it is the exact trailing parenthetical (leaves series/edition/subtitle text intact)
   bookTitle = bookTitle.replace(/\s*\((?:hardback|paperback|hardcover|ebook|kindle edition|audiobook|audio cd|mass market paperback)\)\s*$/i, "").trim();
+
+  // Amazon URL (v1.1.8): ranked by Book-Title match, then slug/product/format — falls back to retail host, then "".
+  const amazon = pickAmazonUrl(urls, bookTitle, lines) || urls.find((u) => BOOK_RETAIL.test(u)) || "";
 
   // Imprint / Publisher / Published by / Publishing — strip any trailing "(date)" so it stays just the imprint
   let imprint = labeled(/^(imprint|publisher|publishing|published\s*by)\b/i, true);
@@ -639,7 +642,7 @@ const SECTIONS = [
 const FIELDS = ["firstName", "lastName", "email", "phone", "otherPhone", "address", "propertyValue", "bookTitle", "imprint", "datePublished", "amazon", "website", "linkedin"];
 const SOURCES = ["Amazon", "TruePeopleSearch", "Canada411", "WhitePages", "Barnes & Noble", "Goodreads"];
 const SRC_ABBR = { TruePeopleSearch: "TPS", FastBackgroundCheck: "FBC", "Barnes & Noble": "B&N" }; // compact labels for the merged indicator
-const VERSION = "1.1.7"; // display only — bump this string as you release; not tied to any logic
+const VERSION = "1.1.8"; // display only — bump this string as you release; not tied to any logic
 // Source classifier. Drives the "Detected Source" UI badge, and is also consulted by parse() for
 // source-aware name gating (a people-search classification keeps authorName off unless a book signal is present).
 function detectSource(text) {
@@ -662,6 +665,52 @@ const TRACKING_PARAMS = new Set([
   "ascsubtag", "th", "colid", "coliid", "smid", "_encoding", "pf_rd_r", "pf_rd_p", "pd_rd_r", "pd_rd_w", "pd_rd_wg", "content-id",
 ]);
 const isAmazonHost = (h) => /(^|\.)amazon\.[a-z.]+$/i.test(h) || /(^|\.)amzn\.[a-z.]+$/i.test(h);
+
+// Amazon URL selection (v1.1.8): rank candidates instead of taking first-by-copy-order.
+// Priority: title-overlap (slug ∩ Book Title) -> slug present -> product URL -> gated format
+// tie-breaker (same-title multi-edition only) -> copy order. Pure; no extraction/parse changes.
+const FMT_RE = /\b(kindle(?: edition)?|paperback|hardcover|hardback|mass market paperback|library binding|audiobook|audio cd|board book|spiral-bound)\b/i;
+const titleTokens = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(/\s+/).filter((w) => w.length > 2);
+// page's primary edition = a format word sharing a line with a year (the buy-box "Paperback – Jan 1, 2025" line)
+function primaryFormat(lines) {
+  for (const l of lines) { if (FMT_RE.test(l) && /\b(?:19|20)\d{2}\b/.test(l) && !/https?:\/\//.test(l)) return l.match(FMT_RE)[1].toLowerCase().replace(" edition", ""); }
+  return "";
+}
+// a URL's own format = a CLEAN adjacent (±1) bare format label, never a date/price line (avoids grabbing the primary line or the next block's label)
+function ownFormat(lines, i) {
+  for (const j of [i - 1, i + 1]) {
+    if (j < 0 || j >= lines.length) continue;
+    const l = lines[j];
+    if (/https?:\/\//.test(l) || /\b(?:19|20)\d{2}\b/.test(l)) continue;
+    const stripped = l.replace(/\$[\d.,]+/g, "").trim();
+    if (FMT_RE.test(stripped) && stripped.replace(FMT_RE, "").replace(/[^a-z]/gi, "").length <= 3) return stripped.match(FMT_RE)[1].toLowerCase().replace(" edition", "");
+  }
+  return "";
+}
+function pickAmazonUrl(urls, bookTitle, lines) {
+  const amz = urls.filter((u) => /amazon\./i.test(u));
+  if (amz.length <= 1) return amz[0] || "";
+  const tt = new Set(titleTokens(bookTitle));
+  const lineOf = (u) => { const idx = lines.findIndex((l) => l.includes(u)); return idx < 0 ? 0 : idx; };
+  const feat = (u) => {
+    let p; try { p = new URL(u).pathname; } catch { return null; }
+    const sm = p.match(/^\/([^\/]+)\/(?:dp|gp\/product)\/[A-Z0-9]{10}/i);
+    const slug = sm ? sm[1] : "";
+    return { u, overlap: slug ? titleTokens(slug).filter((w) => tt.has(w)).length : 0, hasSlug: slug ? 1 : 0, isProd: /\/(?:dp|gp\/product)\/[A-Z0-9]{10}/i.test(p) ? 1 : 0, fmt: ownFormat(lines, lineOf(u)), order: amz.indexOf(u) };
+  };
+  const F = amz.map(feat).filter(Boolean);
+  if (!F.length) return amz[0] || "";
+  const cmp = (a, b) => (b.overlap - a.overlap) || (b.hasSlug - a.hasSlug) || (b.isProd - a.isProd);
+  F.sort(cmp);
+  const top = F.filter((f) => cmp(f, F[0]) === 0); // candidates tied on title/slug/product
+  if (top.length > 1) {
+    const pf = primaryFormat(lines); // gated format tie-breaker (Scenario 8)
+    if (pf) { const m = top.filter((f) => f.fmt === pf); if (m.length === 1) return m[0].u; }
+    top.sort((a, b) => a.order - b.order); // else copy order
+    return top[0].u;
+  }
+  return F[0].u;
+}
 function extractAsin(u) {
   const seg = u.pathname.match(/\/(?:dp|gp\/product|gp\/aw\/d|product|o\/ASIN)\/([A-Z0-9]{10})(?=[/?]|$)/i);
   if (seg) return seg[1].toUpperCase();
